@@ -1,0 +1,35 @@
+name: Wheels
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  build-and-publish:
+    runs-on: ubuntu-latest
+    environment: pypi
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: pypa/cibuildwheel@v2.23.2
+        env:
+          CIBW_BUILD: cp312-manylinux_x86_64
+          CIBW_ARCHS_LINUX: x86_64
+          CIBW_BEFORE_ALL: bash scripts/install_arrow_cpp.sh
+          CIBW_BEFORE_BUILD: pip install auditwheel patchelf build wheel hatchling
+          CIBW_BUILD_FRONTEND: build
+          CIBW_BUILD_COMMAND: bash scripts/build_wheel.sh {output_dir}
+          CIBW_TEST_COMMAND: bash scripts/test_installed_wheel.sh {project}
+          CIBW_TEST_REQUIRES: pytest pyarrow
+
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: wheelhouse/

@@ -5,7 +5,7 @@ BUILD_TYPE  ?= Release
 JOBS        ?= $(shell nproc 2>/dev/null || echo 4)
 CMAKE_FLAGS ?= -DCMAKE_BUILD_TYPE=$(BUILD_TYPE) -DCMAKE_CXX_COMPILER=g++ -DCMAKE_C_COMPILER=gcc
 
-.PHONY: all build configure test test-unit test-golden python-test clean reconfigure help
+.PHONY: all build configure test test-unit test-golden python-test wheel-bundle wheel-build wheel-test clean reconfigure help
 
 all: build
 
@@ -29,6 +29,15 @@ test-golden: build
 python-test:
 	uv run pytest python_tests/ -v
 
+wheel-bundle:
+	./scripts/prepare_wheel_bundle.sh
+
+wheel-build:
+	./scripts/build_wheel.sh
+
+wheel-test: wheel-bundle
+	uv run pytest python_tests/ -v
+
 reconfigure:
 	rm -f $(BUILD_DIR)/CMakeCache.txt
 	$(MAKE) configure
@@ -44,6 +53,9 @@ help:
 	@echo "  make test-unit  Build and run unit tests only"
 	@echo "  make test-golden Build and run golden parity tests only"
 	@echo "  make python-test  Run Python wrapper tests (requires uv sync + C++ binary)"
+	@echo "  make wheel-bundle Stage auditwheel-repaired binary into py/cyphal_reassemble/_bin/"
+	@echo "  make wheel-build  Build py3-none-manylinux platform wheel into dist/"
+	@echo "  make wheel-test   Run Python tests against staged _bin/ bundle"
 	@echo "  make configure  Run CMake configure only"
 	@echo "  make reconfigure Force a fresh CMake configure"
 	@echo "  make clean      Remove the build directory"
