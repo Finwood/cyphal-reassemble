@@ -113,7 +113,7 @@ pycyphal is treated as a strong reference, not an infallible ground truth.
 ### Invocation
 
 ```
-cyphal-reassemble < frames.arrow > transfers.arrow
+cyphal-reassemble < frames.arrows > transfers.arrows
 ```
 
 - Reads an Arrow IPC **stream** from `stdin`.
@@ -122,6 +122,11 @@ cyphal-reassemble < frames.arrow > transfers.arrow
   The caller (pipeline) filters by channel before invoking and re-attaches `channel`
   afterward.
 - Diagnostics and the end-of-run summary go to `stderr`.
+
+**File extension convention:** the tool uses the Arrow IPC **stream** format on both
+ends. When this data is materialized to a file (fixtures, debugging, examples), use the
+`.arrows` extension (Arrow IPC **stream**), NOT `.arrow` (which denotes the random-access
+**file** format). This applies to all fixtures and documentation in this repo.
 
 ### Exit codes
 
@@ -235,7 +240,7 @@ libcanard remains **unmodified** and spec-correct.
 ```
                  ┌─────────────────────────────────────────────┐
    stdin ───────▶│ Arrow IPC stream reader                      │
-   (frames.arrow)│   validate input schema by name             │
+  (frames.arrows)│   validate input schema by name             │
                  └───────────────┬─────────────────────────────┘
                                  │ per batch, per row
                                  ▼
@@ -263,7 +268,7 @@ libcanard remains **unmodified** and spec-correct.
          │ flush a RecordBatch every N rows             │
          └───────────────┬─────────────────────────────┘
                          ▼
-   stdout ◀──────────────┴── Arrow IPC stream writer (transfers.arrow)
+  stdout ◀───────────────┴── Arrow IPC stream writer (transfers.arrows)
 ```
 
 ### Reassembly semantics
