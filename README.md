@@ -21,7 +21,6 @@ make
 `make` configures and builds into `build/` (Release by default). Other targets:
 
 ```bash
-make test                  # build and run tests
 make clean                 # remove build/
 make help                  # list targets and variables
 make BUILD_TYPE=Debug      # debug build
@@ -68,11 +67,17 @@ to stderr. Exit code is non-zero only on fatal I/O or schema errors.
 ## Test
 
 ```bash
-ctest --test-dir build --output-on-failure
+make test
 ```
 
-Golden fixtures under `tests/data/` are generated with `tools/export_fixtures.py`
-from the frame-decoding pipeline.
+Other test targets:
+
+```bash
+make test-unit             # unit tests only
+make test-golden           # golden parity tests (tests/data/)
+```
+
+Golden fixtures under `tests/data/` are vendored from the frame-decoding pipeline.
 
 ## License
 
