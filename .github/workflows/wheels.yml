@@ -22,6 +22,7 @@ jobs:
         env:
           CIBW_BUILD: cp312-manylinux_x86_64
           CIBW_ARCHS_LINUX: x86_64
+          CIBW_MANYLINUX_X86_64_IMAGE: manylinux_2_28
           CIBW_BEFORE_ALL: bash scripts/install_arrow_cpp.sh
           CIBW_BEFORE_BUILD: pip install auditwheel patchelf build wheel hatchling
           CIBW_BUILD_FRONTEND: build

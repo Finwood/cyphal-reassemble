@@ -41,5 +41,5 @@ jobs:
         run: |
           sudo apt-get install -y patchelf
           uv pip install auditwheel
-          ./scripts/build_wheel.sh
+          uv run bash scripts/build_wheel.sh
           unzip -l dist/cyphal_reassemble-*-manylinux_*.whl | grep '_bin/cyphal-reassemble'

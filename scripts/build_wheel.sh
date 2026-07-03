@@ -12,20 +12,24 @@ rm -rf "${REPAIRED_DIR}"
 
 if command -v uv >/dev/null 2>&1; then
   uv pip install build wheel hatchling auditwheel
+  PYTHON="uv run python"
+elif command -v python3 >/dev/null 2>&1; then
+  PYTHON=python3
+  "${PYTHON}" -m pip install --upgrade pip build wheel hatchling auditwheel
 else
-  python -m pip install --upgrade pip build wheel hatchling auditwheel
+  PYTHON=python
+  "${PYTHON}" -m pip install --upgrade pip build wheel hatchling auditwheel
 fi
 
 ./scripts/prepare_wheel_bundle.sh
 
 if [[ -n "${CIBUILDWHEEL:-}" ]]; then
-  python -m pip install --upgrade pip build wheel hatchling
-  python -m build --wheel --outdir "${OUTPUT_DIR}"
+  "${PYTHON}" -m pip install --upgrade pip build wheel hatchling
+  "${PYTHON}" -m build --wheel --outdir "${OUTPUT_DIR}"
 elif command -v uv >/dev/null 2>&1; then
   uv build --wheel --out-dir "${OUTPUT_DIR}"
 else
-  python -m pip install --upgrade pip build wheel hatchling
-  python -m build --wheel --outdir "${OUTPUT_DIR}"
+  "${PYTHON}" -m build --wheel --outdir "${OUTPUT_DIR}"
 fi
 
 WHEEL=( "${OUTPUT_DIR}"/cyphal_reassemble-*.whl )
@@ -38,7 +42,7 @@ auditwheel_cmd() {
   if command -v auditwheel >/dev/null 2>&1; then
     auditwheel "$@"
   else
-    python -m auditwheel "$@"
+    "${PYTHON}" -m auditwheel "$@"
   fi
 }
 
