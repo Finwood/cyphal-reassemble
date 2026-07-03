@@ -17,6 +17,8 @@ dev = [
 
 [tool.hatch.build.targets.wheel]
 sources = ["py"]
+# Include staged _bin/cyphal-reassemble even though it is gitignored locally.
+ignore-vcs = true
 
 [tool.hatch.build.targets.sdist]
 include = [
