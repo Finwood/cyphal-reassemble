@@ -18,9 +18,6 @@ dev = [
 [tool.hatch.build.targets.wheel]
 sources = ["py"]
 
-[tool.hatch.build.targets.wheel.force-include]
-"py/cyphal_reassemble/_bin" = "cyphal_reassemble/_bin"
-
 [tool.hatch.build.targets.sdist]
 include = [
   "/py/cyphal_reassemble",
