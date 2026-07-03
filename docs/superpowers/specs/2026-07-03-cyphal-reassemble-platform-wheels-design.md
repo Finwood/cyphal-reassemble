@@ -1,6 +1,6 @@
 # cyphal-reassemble Platform Wheels — Architecture
 
-**Status:** Draft (2026-07-03)
+**Status:** Approved (2026-07-03)
 **Repo:** `cyphal-reassemble` (same repo as C++ executable + Python wrapper)
 **Depends on:**
 - `docs/superpowers/specs/2026-07-03-cyphal-reassemble-design.md` (C++ IPC contract)
@@ -357,13 +357,15 @@ No C++ source changes required for P0.
 - **C++ design spec** — IPC contract unchanged; this adds a deployment artifact.
 - **Python wrapper spec (Phase 1)** — API and `_backend.py` resolution unchanged; Phase 2
   deferred item is now specified here.
-- **Implementation plan** — Follow-up doc (`docs/superpowers/plans/2026-07-03-cyphal-reassemble-platform-wheels.md`) should break this into tasks (scripts, pyproject, CI, tests, README).
+- **Implementation plan** — `docs/superpowers/plans/2026-07-03-cyphal-reassemble-platform-wheels.md`
 
 ---
 
-## Next steps
+## Implementation status
 
-1. Write implementation plan from this architecture.
-2. Configure PyPI trusted publisher for the wheels workflow.
-3. Implement P0 (`manylinux_2_28_x86_64` + hatchling + auditwheel + wheel smoke tests).
-4. Publish first platform wheel; integrate into frame-decoding pipeline CI.
+| Phase | Scope | Status |
+| --- | --- | --- |
+| Spec | This document | **Approved** |
+| Plan | Task breakdown | See implementation plan |
+| P0 | `manylinux_2_28_x86_64` wheel + PyPI trusted publishing | Not started |
+| P1+ | aarch64, macOS | Deferred |
