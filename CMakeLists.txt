@@ -21,7 +21,7 @@ add_library(reassemble_core STATIC
 target_include_directories(reassemble_core PUBLIC src)
 target_link_libraries(reassemble_core PUBLIC canard Arrow::arrow_shared)
 
-add_executable(cyphal-reassemble src/main.cpp)
+add_executable(cyphal-reassemble src/main.cpp src/usage.cpp)
 target_link_libraries(cyphal-reassemble PRIVATE reassemble_core)
 
 # Tests

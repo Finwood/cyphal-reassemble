@@ -1,12 +1,58 @@
 #include <cstdio>
+#include <cstring>
 #include <memory>
+#include <unistd.h>
 
 #include <arrow/io/stdio.h>
 
 #include "arrow_io.h"
 #include "reassembler.h"
+#include "usage.h"
 
-int main() {
+namespace {
+
+bool wants_help(int argc, char* argv[]) {
+    for (int i = 1; i < argc; ++i) {
+        if (std::strcmp(argv[i], "--help") == 0 || std::strcmp(argv[i], "-h") == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
+const char* first_unknown_arg(int argc, char* argv[]) {
+    for (int i = 1; i < argc; ++i) {
+        if (std::strcmp(argv[i], "--help") != 0 && std::strcmp(argv[i], "-h") != 0) {
+            return argv[i];
+        }
+    }
+    return nullptr;
+}
+
+bool stdin_is_interactive() {
+    return isatty(fileno(stdin)) != 0;
+}
+
+}  // namespace
+
+int main(int argc, char* argv[]) {
+    if (wants_help(argc, argv)) {
+        cy_print_usage(stdout);
+        return 0;
+    }
+
+    if (const char* unknown = first_unknown_arg(argc, argv)) {
+        std::fprintf(stderr, "error: unknown argument: %s\n\n", unknown);
+        cy_print_usage(stderr);
+        return 2;
+    }
+
+    // No piped input: user likely launched the binary directly from a shell.
+    if (stdin_is_interactive()) {
+        cy_print_usage(stdout);
+        return 0;
+    }
+
     auto in = std::make_shared<arrow::io::StdinStream>();
     auto out = std::make_shared<arrow::io::StdoutStream>();
 
