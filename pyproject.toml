@@ -1,0 +1,32 @@
+[project]
+name = "cyphal-reassemble"
+version = "0.1.0"
+description = "Fast Cyphal/CAN transfer reassembly (Python wrapper over libcanard binary)"
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.10,<3.15"
+dependencies = [
+    "pyarrow>=15.0.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.3",
+]
+
+[tool.uv.build-backend]
+module-root = "py"
+
+[tool.pytest.ini_options]
+testpaths = ["python_tests"]
+
+[tool.ruff]
+line-length = 120
+
+[tool.ruff.lint]
+extend-select = ["I"]
+
+[build-system]
+requires = ["uv_build>=0.11.26,<0.12"]
+build-backend = "uv_build"

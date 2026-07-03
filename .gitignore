@@ -10,3 +10,6 @@
 
 # Vendored dependency build artifacts
 third_party/**/build/
+
+# uv virtual environment
+.venv/
