@@ -18,7 +18,31 @@ jobs:
         with:
           submodules: recursive
 
-      - uses: pypa/cibuildwheel@v2.23.2
+      # Hatchling emits py3-none-any, then auditwheel retags to manylinux. cibuildwheel's
+      # default PEP 517 build rejects none-any wheels before repair, so we run the same
+      # build_wheel.sh flow inside the official manylinux_2_28 image instead.
+      - name: Build and test manylinux wheel
+        run: |
+          docker run --rm \
+            -v "$PWD:/project" \
+            -w /project \
+            quay.io/pypa/manylinux_2_28_x86_64 \
+            bash -c '
+              set -euo pipefail
+              export CIBUILDWHEEL=1
+              bash scripts/install_arrow_cpp.sh
+              python3 -m pip install --upgrade pip auditwheel build wheel hatchling patchelf pytest "pyarrow>=15"
+              mkdir -p wheelhouse
+              bash scripts/build_wheel.sh wheelhouse
+              mapfile -t wheels < <(compgen -G "wheelhouse/cyphal_reassemble-*-manylinux_*.whl")
+              if (( ${#wheels[@]} != 1 )); then
+                echo "expected exactly one manylinux wheel in wheelhouse/" >&2
+                ls -la wheelhouse/ || true
+                exit 1
+              fi
+              python3 -m pip install "${wheels[0]}"
+              bash scripts/test_installed_wheel.sh /project
+            '
 
       - uses: actions/upload-artifact@v4
         with:
