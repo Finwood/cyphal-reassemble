@@ -9,6 +9,7 @@ PYTHON="${PYTHON:-python}"
 if ! command -v "${PYTHON}" >/dev/null 2>&1; then
   PYTHON=python3
 fi
+PYTHON="$(command -v "${PYTHON}")"
 
 unset CYPHAL_REASSEMBLE_BIN
 export PATH="/usr/local/bin:/usr/bin:/bin"
