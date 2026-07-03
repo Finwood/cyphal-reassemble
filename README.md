@@ -23,6 +23,7 @@ cmake --build build -j
 
 ```bash
 cyphal-reassemble < frames.arrows > transfers.arrows
+cyphal-reassemble --help
 ```
 
 ### Input schema (Arrow IPC stream)
@@ -30,18 +31,28 @@ cyphal-reassemble < frames.arrows > transfers.arrows
 | Column | Type | Required |
 | --- | --- | --- |
 | `timestamp` | `timestamp[us, UTC]` | yes |
-| `id` | `uint32` (29-bit extended CAN ID) | yes |
-| `data` | `binary` (full CAN payload incl. tail byte) | yes |
-| `rti` | `uint8` (redundant interface index) | no (default 0) |
+| `id` | `uint32` (29-bit CAN ID) | yes |
+| `data` | `binary` (incl. tail) | yes |
+| `rti` | `uint8` | no (default 0) |
 
 Extra columns are ignored. One invocation handles one reassembly domain
 (typically one CAN channel).
 
 ### Output schema (Arrow IPC stream)
 
-`timestamp, type, id, source, dest, priority, transfer_id, payload, length`
-(matches `sc_schema.TransferSchema` minus `channel`, which the pipeline
-re-attaches).
+| Column | Type | Required |
+| --- | --- | --- |
+| `timestamp` | `timestamp[us, UTC]` | yes |
+| `type` | `utf8` (Message\|Request\|Response) | yes |
+| `id` | `int16` (subject-id or service-id) | yes |
+| `source` | `uint8` (null if anonymous) | no |
+| `dest` | `uint8` (null for messages) | no |
+| `priority` | `uint8` | no |
+| `transfer_id` | `uint8` | no |
+| `payload` | `binary` (raw reassembled bytes) | no |
+| `length` | `int32` (payload byte count) | no |
+
+Matches `sc_schema.TransferSchema` minus `channel`, which the pipeline re-attaches.
 
 Diagnostics and a summary line (`frames_in / transfers_out / errors / oom`) go
 to stderr. Exit code is non-zero only on fatal I/O or schema errors.
