@@ -279,11 +279,11 @@ A typical batch consumer will, per `(logger, session)`:
 
 The wrapper intentionally stops before step 2's channel attachment.
 
-## Phase 2 (deferred)
+## Phase 2
 
-- CI-built manylinux wheels with binary in `py/cyphal_reassemble/_bin/`
-- Optional `Reassembler` iterator class
-- Structured access to stderr summary (`frames_in`, `transfers_out`, `errors`)
+- **Platform wheels (Option 1):** see `docs/superpowers/specs/2026-07-03-cyphal-reassemble-platform-wheels-design.md`
+- Optional `Reassembler` iterator class (still deferred)
+- Structured access to stderr summary (`frames_in`, `transfers_out`, `errors`) (still deferred)
 
 ## Open risks
 

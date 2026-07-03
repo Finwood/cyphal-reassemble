@@ -1,0 +1,351 @@
+# cyphal-reassemble Platform Wheels — Architecture
+
+**Status:** Draft (2026-07-03)
+**Repo:** `cyphal-reassemble` (same repo as C++ executable + Python wrapper)
+**Depends on:**
+- `docs/superpowers/specs/2026-07-03-cyphal-reassemble-design.md` (C++ IPC contract)
+- `docs/superpowers/specs/2026-07-03-cyphal-reassemble-python-wrapper-design.md` (Python wrapper, Phase 1 — merged in PR #2)
+
+**Supersedes:** Phase 2 bullet in the Python wrapper spec (“CI-built manylinux wheels with binary in `_bin/`”).
+
+---
+
+## Background
+
+PR #2 shipped the Python wrapper (`cyphal_reassemble`) as a **pure-Python** installable
+package. Runtime resolution already supports a bundled binary slot:
+
+```
+CYPHAL_REASSEMBLE_BIN → py/cyphal_reassemble/_bin/ → PATH → repo build/
+```
+
+Today `uv build` produces a `py3-none-any` wheel containing **no executable**. Consumers must
+build the C++ binary locally (`make`) or point `CYPHAL_REASSEMBLE_BIN` at an external build.
+
+The frame-decoding pipeline and other downstream batch jobs need **`pip install` (or
+`uv add`) to “just work”** on supported platforms without a compiler or system `libarrow-dev`.
+
+This document specifies **Option 1**: ship **platform-specific wheels** that bundle the
+`cyphal-reassemble` executable **and its shared-library dependencies** (notably `libarrow`),
+repaired for portability with **auditwheel** (Linux) / **delocate** (macOS).
+
+---
+
+## Goals
+
+- Publish installable wheels where `import cyphal_reassemble; reassemble(...)` works without a
+  prior local C++ build on supported platforms.
+- Bundle the existing CLI binary unchanged (same Arrow IPC stdin/stdout contract).
+- Reuse the `_bin/` resolution slot already wired in `_backend.py` — no public API changes.
+- Build wheels reproducibly in CI (GitHub Actions + cibuildwheel).
+- Keep local dev workflow unchanged: `make` + `uv sync` + editable install with repo `build/`
+  fallback.
+
+## Non-goals
+
+- Static linking / self-contained single-file executables (Option 3 — explicitly rejected).
+- Windows wheels (defer until there is a concrete consumer; MSVC + Arrow C++ is a separate
+  project).
+- PyPI `py3-none-any` wheels (the binary is inherently platform-specific).
+- Changing the subprocess IPC boundary or public Python API.
+- Bundling or pinning **pyarrow** inside the wheel beyond the existing runtime dependency
+  (Python and C++ Arrow remain independent at the IPC wire format).
+- Split-package layout (`cyphal-reassemble` + `cyphal-reassemble-bin`) unless platform-matrix
+  complexity later forces it.
+
+---
+
+## Design decisions
+
+| Decision | Choice | Rationale |
+| --- | --- | --- |
+| Bundling strategy | Shared exe + vendored `.so` via auditwheel | Matches current `Arrow::arrow_shared` CMake link; minimal C++ change |
+| Wheel layout | `cyphal_reassemble/_bin/` tree | Already second in `resolve_binary()`; one directory holds exe + repaired libs |
+| Wheel tag | `py3-none-<platform>` | Python code is pure; only the bundled binary is platform-specific |
+| Build orchestration | **cibuildwheel** in GitHub Actions | Standard matrix (manylinux / macOS), hooks for compile + repair |
+| Build backend | **hatchling** (replace `uv_build` for releases) | `force-include` / artifacts for `_bin/`; `uv_build` has no custom hook story |
+| Dev builds | Keep `make` + shared system Arrow | Fast iteration; no auditwheel in dev loop |
+| sdist | Continue publishing source tree | Advanced users / unsupported platforms can still `make` |
+| Binary RPATH | `$ORIGIN` (set by auditwheel repair) | `.so` files colocated with exe under `_bin/` |
+| Versioning | Single package version (wrapper + binary lockstep) | Same repo, same tag; avoids ABI skew between Python facade and CLI |
+
+---
+
+## Architecture overview
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│  Consumer (frame-decoding pipeline, notebooks, scripts)                 │
+│    pip install cyphal-reassemble   # platform wheel                     │
+│    reassemble(frames_table)                                             │
+└───────────────────────────────┬─────────────────────────────────────────┘
+                                │
+┌───────────────────────────────▼─────────────────────────────────────────┐
+│  cyphal_reassemble (pure Python — unchanged from PR #2)                 │
+│    reassemble.py  →  validate → stream IPC to subprocess                │
+│    _backend.py    →  resolve_binary() → Popen                           │
+└───────────────────────────────┬─────────────────────────────────────────┘
+                                │ subprocess, Arrow IPC stream
+┌───────────────────────────────▼─────────────────────────────────────────┐
+│  site-packages/cyphal_reassemble/_bin/   (platform wheel payload)       │
+│    cyphal-reassemble          ← auditwheel-repaired executable          │
+│    libarrow.so.* (+ deps)     ← vendored next to exe, RPATH=$ORIGIN     │
+└───────────────────────────────┬─────────────────────────────────────────┘
+                                │
+┌───────────────────────────────▼─────────────────────────────────────────┐
+│  C++ core (unchanged logic)                                             │
+│    libcanard (static) + libarrow (shared, bundled at wheel build time)  │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+### Resolution order (unchanged)
+
+1. `CYPHAL_REASSEMBLE_BIN` — override for debugging / custom builds
+2. **`importlib.resources` path / `_bin/cyphal-reassemble`** — populated by platform wheel
+3. `shutil.which("cyphal-reassemble")` — system install
+4. `<repo>/build/cyphal-reassemble` — editable dev fallback
+
+After wheel install, step 2 satisfies normal use. Step 4 remains for `uv sync` editable installs
+from a git clone.
+
+---
+
+## Wheel contents
+
+### Installed layout (example Linux x86_64)
+
+```
+site-packages/
+└── cyphal_reassemble/
+    ├── __init__.py
+    ├── schema.py
+    ├── reassemble.py
+    ├── _backend.py
+    └── _bin/
+        ├── cyphal-reassemble          # ELF executable
+        ├── libarrow.so.1800           # version varies with Arrow apt pin
+        ├── libarrow.so -> libarrow.so.1800
+        └── …                          # other auditwheel-pulled deps if any
+```
+
+`_bin/` is **gitignored** in the source tree (never committed). It exists only as a CI
+build artifact staged immediately before `hatchling` / wheel assembly.
+
+### Wheel filename (example)
+
+```
+cyphal_reassemble-0.2.0-py3-none-manylinux_2_28_x86_64.whl
+```
+
+The `py3-none` abi tag reflects pure Python modules; platform specificity comes from the
+`manylinux_2_28_x86_64` tag and bundled ELF payload.
+
+---
+
+## Build pipeline
+
+High-level CI flow per platform job:
+
+```
+checkout (+ submodules)
+    → install Arrow C++ + build tools (same apt source as existing CI)
+    → cmake/make Release → build/cyphal-reassemble
+    → auditwheel show build/cyphal-reassemble   (diagnostics)
+    → auditwheel repair -w _wheelhouse/ build/cyphal-reassemble
+    → stage: _wheelhouse/cyphal-reassemble/*  →  py/cyphal_reassemble/_bin/
+    → hatchling build  →  dist/*.whl
+    → smoke test: pip install dist/*.whl && uv run pytest python_tests/
+    → upload artifact / publish to PyPI (on tag)
+```
+
+### cibuildwheel integration
+
+Add `.github/workflows/wheels.yml` (or extend CI with a `release` job) driven by
+**cibuildwheel**:
+
+| Setting | Proposed value |
+| --- | --- |
+| `CIBW_BUILD` | `cp312-*` initially; expand to `cp3{10,11,12,13,14}-*` when validated |
+| Linux image | `manylinux_2_28` |
+| Linux arch | `x86_64` first; add `aarch64` when pipeline needs it |
+| macOS | Defer, or `arm64` + `x86_64` if macOS consumers exist |
+| `before-build` | Install Arrow apt repo + `make` (reuse existing CI snippet) |
+| `repair-wheel-command` | N/A — repair happens **before** Python packaging (see below) |
+
+**Why repair before hatchling, not after:** auditwheel operates on ELF binaries. The Python
+wheel build step only **copies an already-repaired tree** into `_bin/`. This avoids fighting
+hatchling’s internal wheel layout and keeps repair logic in one shell script.
+
+Proposed script: `scripts/prepare_wheel_bundle.sh`
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+make
+mkdir -p py/cyphal_reassemble/_bin
+auditwheel repair -w /tmp/wheelhouse build/cyphal-reassemble
+cp -a /tmp/wheelhouse/cyphal-reassemble/* py/cyphal_reassemble/_bin/
+```
+
+macOS equivalent: `delocate`-based script in `scripts/prepare_wheel_bundle_macos.sh`.
+
+### Build backend change
+
+Release builds switch from `uv_build` to **hatchling** with explicit inclusion of `_bin/`:
+
+```toml
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["py/cyphal_reassemble"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"py/cyphal_reassemble/_bin" = "cyphal_reassemble/_bin"
+```
+
+**Dev workflow stays uv-native:** `uv sync` continues to install the package editable from
+`py/`; only the release / cibuildwheel path runs `prepare_wheel_bundle.sh` before building.
+
+---
+
+## Platform matrix (phased)
+
+| Phase | Platforms | Trigger |
+| --- | --- | --- |
+| **P0** | `manylinux_2_28_x86_64` | Pipeline runs on Linux amd64 |
+| **P1** | `manylinux_2_28_aarch64` | ARM CI / Graviton consumers |
+| **P2** | `macosx_*` (arm64, optionally x86_64) | macOS dev or CI consumers |
+| **—** | Windows | Out of scope until requested |
+
+Each platform is an independent cibuildwheel job producing its own wheel with the same
+version number. PyPI serves the correct wheel per `pip install` platform probe.
+
+---
+
+## Arrow / libarrow coupling
+
+The C++ binary is built against the **Arrow C++ version provided by the CI image** (today:
+Apache Arrow apt repository on Ubuntu / manylinux). auditwheel copies the linked
+`libarrow.so.*` (and transitive deps) into `_bin/`.
+
+Implications:
+
+- **Wheel-local Arrow ≠ user’s pyarrow version** — acceptable because IPC is a wire format
+  between processes; the Python wrapper serializes with pyarrow, the binary deserializes with
+  bundled libarrow.
+- **Arrow apt pin drift** — if CI’s Arrow version jumps, rebuilt wheels bundle the new `.so`;
+  golden tests in CI catch IPC regressions before publish.
+- **manylinux glibc floor** — cibuildwheel’s manylinux_2_28 image defines minimum glibc for
+  Linux wheels; do not build release binaries on a bare `ubuntu-latest` runner without
+  cibuildwheel’s container.
+
+Optional hardening (later): record `arrow --version` in wheel metadata or `cyphal_reassemble
+__version_arrow__` for support diagnostics.
+
+---
+
+## Release workflow
+
+```
+tag v0.2.0 on main
+    → GitHub Actions: wheels.yml
+    → cibuildwheel matrix builds + tests
+    → upload to GitHub Release artifacts
+    → publish to PyPI (trusted publishing or API token)
+```
+
+Version bump in `pyproject.toml` remains the single source of truth. C++ and Python share
+that version; no separate `-bin` package version.
+
+### Consumer install (target UX)
+
+```bash
+uv add cyphal-reassemble        # or: pip install cyphal-reassemble
+# no `make`, no CYPHAL_REASSEMBLE_BIN, no libarrow-dev
+python -c "from cyphal_reassemble import reassemble; print(reassemble)"
+```
+
+Unsupported platform: `pip install` falls back to sdist + manual `make`, or fails with a
+clear “no wheel for your platform” message from the index.
+
+---
+
+## Testing strategy
+
+| Layer | What | Where |
+| --- | --- | --- |
+| C++ unit + golden | Existing `make test` | Every push (unchanged) |
+| Python wrapper | `uv run pytest python_tests/` against repo `build/` | Every push (unchanged) |
+| **Wheel smoke** | `pip install dist/*.whl` in clean venv → pytest without repo `build/` | cibuildwheel `test-command` |
+| **Bundled resolution** | Assert `resolve_binary()` points under `site-packages/.../_bin/` | New test in `python_tests/test_backend.py` |
+| **ldd / load check** | `_bin/cyphal-reassemble` runs `--help`; no missing `.so` | CI script after repair |
+
+Wheel smoke tests must **unset** `CYPHAL_REASSEMBLE_BIN` and ensure `build/cyphal-reassemble`
+is not on PATH so `_bin/` is exercised.
+
+---
+
+## Repository changes (summary)
+
+| Path | Change |
+| --- | --- |
+| `docs/superpowers/specs/2026-07-03-cyphal-reassemble-platform-wheels-design.md` | This document |
+| `scripts/prepare_wheel_bundle.sh` | Build + auditwheel + stage into `_bin/` |
+| `pyproject.toml` | hatchling build backend; `[tool.hatch.build.*]` |
+| `.gitignore` | `py/cyphal_reassemble/_bin/` |
+| `.github/workflows/wheels.yml` | cibuildwheel release job |
+| `python_tests/test_backend.py` | Bundled-binary resolution test (wheel job) |
+| `README.md` | Install from PyPI / platform requirements |
+| Python wrapper spec | Mark Phase 2 complete; link here |
+
+No C++ source changes required for P0.
+
+---
+
+## Open decisions (need product owner input)
+
+These do not block writing this architecture but **must be resolved before implementation
+starts**:
+
+1. **Publish target** — Public PyPI, private index (e.g. GitHub Packages), or GitHub Release
+   artifacts only?
+2. **P0 platform** — Is `manylinux_2_28_x86_64` alone sufficient for the frame-decoding
+   pipeline, or is `aarch64` required at launch?
+3. **macOS** — Any near-term macOS consumers, or Linux-only for v1 wheels?
+4. **Python abi tags** — Start with `py3-none` (one wheel per platform for all Python 3.10–3.14)
+   or per-interpreter `cp312` wheels via cibuildwheel’s default matrix?
+5. **Release cadence** — Tag-driven PyPI publish on every semver tag, or manual workflow
+   dispatch?
+
+---
+
+## Risks and mitigations
+
+| Risk | Mitigation |
+| --- | --- |
+| auditwheel misses a dependency | `auditwheel show` + `ldd` gate in CI; smoke `--help` and golden pytest |
+| Arrow apt breaking change | Pin apt source version or manylinux image digest; golden tests |
+| Large wheel size (libarrow) | Accept for v1; document size; optional strip/debug split later |
+| `_bin/` accidentally committed | `.gitignore` + CI checks no ELF in git tree |
+| hatchling / uv dev drift | Document: dev uses `uv sync`; release uses hatchling via cibuildwheel only |
+| Unsupported platform install | Clear README fallback: clone, `make`, editable install |
+
+---
+
+## Relationship to prior specs
+
+- **C++ design spec** — IPC contract unchanged; this adds a deployment artifact.
+- **Python wrapper spec (Phase 1)** — API and `_backend.py` resolution unchanged; Phase 2
+  deferred item is now specified here.
+- **Implementation plan** — Follow-up doc (`docs/superpowers/plans/2026-07-03-cyphal-reassemble-platform-wheels.md`) should break this into tasks (scripts, pyproject, CI, tests, README).
+
+---
+
+## Next steps
+
+1. Resolve open decisions (publish target, platform matrix).
+2. Write implementation plan from this architecture.
+3. Implement P0 (`manylinux_2_28_x86_64` + hatchling + auditwheel + wheel smoke tests).
+4. Publish first platform wheel; integrate into frame-decoding pipeline CI.
