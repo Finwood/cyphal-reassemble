@@ -10,7 +10,10 @@ cd "${ROOT}"
 mkdir -p "${OUTPUT_DIR}"
 rm -rf "${REPAIRED_DIR}"
 
-if command -v uv >/dev/null 2>&1; then
+if [[ -n "${CIBUILDWHEEL:-}" ]]; then
+  PYTHON="${PYTHON:-python}"
+  "${PYTHON}" -m pip install --upgrade pip build wheel hatchling auditwheel
+elif command -v uv >/dev/null 2>&1; then
   uv pip install build wheel hatchling auditwheel
   PYTHON="uv run python"
 elif command -v python3 >/dev/null 2>&1; then
