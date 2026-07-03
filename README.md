@@ -12,18 +12,26 @@ agnostic: all such semantics stay in the calling pipeline.
 ## Build
 
 ```bash
-sudo dnf install -y libarrow-devel cmake gcc-c++ git   # Fedora
+sudo dnf install -y libarrow-devel cmake gcc-c++ git make   # Fedora
 git clone --recurse-submodules <repo-url>
 cd cyphal-reassemble
-cmake -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build -j
+make
+```
+
+`make` configures and builds into `build/` (Release by default). Other targets:
+
+```bash
+make test                  # build and run tests
+make clean                 # remove build/
+make help                  # list targets and variables
+make BUILD_TYPE=Debug      # debug build
 ```
 
 ## Usage
 
 ```bash
-cyphal-reassemble < frames.arrows > transfers.arrows
-cyphal-reassemble --help
+build/cyphal-reassemble < frames.arrows > transfers.arrows
+build/cyphal-reassemble --help
 ```
 
 ### Input schema (Arrow IPC stream)
