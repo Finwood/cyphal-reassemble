@@ -5,7 +5,7 @@ BUILD_TYPE  ?= Release
 JOBS        ?= $(shell nproc 2>/dev/null || echo 4)
 CMAKE_FLAGS ?= -DCMAKE_BUILD_TYPE=$(BUILD_TYPE) -DCMAKE_CXX_COMPILER=g++ -DCMAKE_C_COMPILER=gcc
 
-.PHONY: all build configure test test-unit test-golden clean reconfigure help
+.PHONY: all build configure test test-unit test-golden python-test clean reconfigure help
 
 all: build
 
@@ -26,6 +26,9 @@ test-unit: build
 test-golden: build
 	ctest --test-dir $(BUILD_DIR) --output-on-failure -R Golden
 
+python-test:
+	uv run pytest python_tests/ -v
+
 reconfigure:
 	rm -f $(BUILD_DIR)/CMakeCache.txt
 	$(MAKE) configure
@@ -40,6 +43,7 @@ help:
 	@echo "  make test       Build and run the full test suite"
 	@echo "  make test-unit  Build and run unit tests only"
 	@echo "  make test-golden Build and run golden parity tests only"
+	@echo "  make python-test  Run Python wrapper tests (requires uv sync + C++ binary)"
 	@echo "  make configure  Run CMake configure only"
 	@echo "  make reconfigure Force a fresh CMake configure"
 	@echo "  make clean      Remove the build directory"

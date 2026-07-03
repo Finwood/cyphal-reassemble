@@ -27,3 +27,12 @@ jobs:
 
       - name: Test
         run: make test
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Python tests
+        run: |
+          uv sync
+          uv run pytest python_tests/ -v

@@ -82,3 +82,39 @@ Golden fixtures under `tests/data/` are vendored from the frame-decoding pipelin
 ## License
 
 MIT
+
+## Python package
+
+Requires [uv](https://docs.astral.sh/uv/). Build the C++ binary first (see Build above), then:
+
+```bash
+uv sync
+```
+
+Usage:
+
+```python
+import pyarrow.ipc as ipc
+from cyphal_reassemble import reassemble
+
+with open("tests/data/frames_CAN1.arrows", "rb") as f:
+    frames = ipc.open_stream(f).read_all()
+
+transfers = reassemble(frames)
+```
+
+Environment:
+
+- `CYPHAL_REASSEMBLE_BIN` — override path to the executable (optional)
+
+Run Python tests:
+
+```bash
+uv run pytest python_tests/ -v
+```
+
+Lint:
+
+```bash
+uv run ruff check .
+```
