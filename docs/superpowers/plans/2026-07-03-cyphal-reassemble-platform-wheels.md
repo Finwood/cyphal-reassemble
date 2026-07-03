@@ -19,9 +19,17 @@ make && make test              # C++ must pass
 uv sync && uv run pytest python_tests/ -v   # Python wrapper must pass
 ```
 
-Manual one-time setup (repo owner, not automatable in code):
+Manual one-time setup (repo owner — **you**):
 
-- Register **PyPI trusted publisher** for `Finwood/cyphal-reassemble`, workflow `.github/workflows/wheels.yml`, environment `pypi` (or workflow filename only — match PyPI UI).
+→ Follow **[PyPI trusted publishing setup (repo owner)](../../specs/2026-07-03-cyphal-reassemble-platform-wheels-design.md#pypi-trusted-publishing-setup-repo-owner)** in the design spec (steps 1–7: PyPI publisher, GitHub `pypi` environment, dry-run, first tag).
+
+Summary checklist:
+
+- [ ] `wheels.yml` merged to `main`
+- [ ] PyPI trusted publisher: `Finwood` / `cyphal-reassemble` / `wheels.yml` / environment `pypi`
+- [ ] GitHub environment **`pypi`** created on the repo
+- [ ] Optional: TestPyPI pending publisher + manual `workflow_dispatch`
+- [ ] First tag `v0.2.0` → verify `pip install cyphal-reassemble`
 
 ---
 
@@ -345,19 +353,25 @@ jobs:
 
 Adjust `CIBW_BEFORE_BUILD` during implementation until `make` succeeds inside the container. Document the final commands in the workflow comment.
 
-- [ ] **Step 2: Configure PyPI trusted publisher**
+- [ ] **Step 2: Configure PyPI trusted publisher (repo owner manual steps)**
 
-In PyPI project settings (create project `cyphal-reassemble` if needed):
+**→ Full walkthrough:** [PyPI trusted publishing setup (repo owner)](../../specs/2026-07-03-cyphal-reassemble-platform-wheels-design.md#pypi-trusted-publishing-setup-repo-owner) in the design spec.
 
-| Field | Value |
-| --- | --- |
-| Publisher | GitHub |
-| Owner | `Finwood` |
-| Repository | `cyphal-reassemble` |
-| Workflow | `wheels.yml` |
-| Environment | `pypi` (must match GitHub `environment: pypi`) |
+Quick reference — must match the workflow in Step 1:
 
-Create matching GitHub environment `pypi` with no required reviewers for automated publish (or add reviewers if preferred).
+| Where | Field | Value |
+| --- | --- | --- |
+| PyPI | Project name | `cyphal-reassemble` |
+| PyPI | Owner | `Finwood` |
+| PyPI | Repository | `cyphal-reassemble` |
+| PyPI | Workflow filename | `wheels.yml` |
+| PyPI | Environment | `pypi` |
+| GitHub | Environment name | `pypi` (repo **Settings → Environments**) |
+
+Do **not** create a `PYPI_API_TOKEN` secret. Trusted publishing uses OIDC (`id-token: write`).
+
+Complete PyPI + GitHub setup **before** pushing the first `v*` tag. Optional: TestPyPI dry-run
+first (same publisher fields on test.pypi.org).
 
 - [ ] **Step 3: Dry-run without publish**
 

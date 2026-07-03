@@ -276,11 +276,145 @@ tag v0.2.0 on main
     → publish to PyPI via trusted publishing (OIDC; no API token)
 ```
 
-Configure PyPI trusted publisher for this repo/workflow per
-[PyPI trusted publishing docs](https://docs.pypi.org/trusted-publishers/).
+Configure PyPI trusted publishing once before the first release — see
+**[PyPI trusted publishing setup (repo owner)](#pypi-trusted-publishing-setup-repo-owner)** below.
 
 Version bump in `pyproject.toml` remains the single source of truth. C++ and Python share
 that version; no separate `-bin` package version.
+
+### PyPI trusted publishing setup (repo owner)
+
+One-time manual setup. Do this **after** `.github/workflows/wheels.yml` is merged to `main`
+(the workflow filename must exist on the default branch before PyPI will accept uploads).
+
+#### 1. Confirm package name
+
+The PyPI project name must match `pyproject.toml`:
+
+```toml
+[project]
+name = "cyphal-reassemble"
+```
+
+Trusted publishing binds to this exact name.
+
+#### 2. Create the PyPI project (if it does not exist yet)
+
+**Option A — pending publisher (recommended for first release):** skip creating the project
+manually; step 3 registers a *pending* trusted publisher and the **first successful workflow
+upload creates the project**.
+
+**Option B — create empty project first:**
+
+1. Log in at [pypi.org](https://pypi.org).
+2. Open [Register](https://pypi.org/account/register/) if you need an account (enable 2FA — PyPI requires it for publishing).
+3. After login, you do **not** need to upload manually; the project appears on first trusted publish.
+
+#### 3. Add the trusted publisher on PyPI
+
+1. Open **[Account settings → Publishing](https://pypi.org/manage/account/publishing/)** (for a *new* project)  
+   **or** your project → **Manage** → **Publishing** (if `cyphal-reassemble` already exists).
+2. Click **Add a new pending publisher** (new project) or **Add trusted publisher** (existing).
+3. Fill in **exactly**:
+
+| Field | Value |
+| --- | --- |
+| PyPI project name | `cyphal-reassemble` |
+| Owner | `Finwood` |
+| Repository name | `cyphal-reassemble` |
+| Workflow name | `wheels.yml` |
+| Environment name | `pypi` |
+
+4. Save.
+
+The **Owner**, **Repository**, **Workflow name**, and **Environment name** must match GitHub
+exactly. The workflow file is `.github/workflows/wheels.yml` → workflow name `wheels.yml`.
+
+Official reference: [PyPI trusted publishers](https://docs.pypi.org/trusted-publishers/).
+
+#### 4. Create the matching GitHub environment
+
+1. Open `https://github.com/Finwood/cyphal-reassemble/settings/environments`.
+2. **New environment** → name it `pypi` (must match PyPI step 3).
+3. **Deployment branches:** restrict to `main` (or your release branch) if you want — recommended.
+4. **Required reviewers:** optional; leave empty for fully automated tag releases, or add yourself for a manual approval gate before PyPI upload.
+5. Save.
+
+The workflow job uses `environment: pypi`; GitHub only mints the OIDC token for trusted publishing
+when this environment exists and the run is allowed to use it.
+
+#### 5. Verify workflow permissions
+
+In `.github/workflows/wheels.yml` the job needs:
+
+```yaml
+permissions:
+  id-token: write   # required for OIDC → PyPI
+
+jobs:
+  build-and-publish:
+    environment: pypi
+    ...
+      - uses: pypa/gh-action-pypi-publish@release/v1
+```
+
+No `PYPI_API_TOKEN` secret is required — that is the point of trusted publishing.
+
+If the repo uses restricted default workflow permissions: **Settings → Actions → General →
+Workflow permissions → Read and write** is not required, but **Read repository contents** plus
+allow **`id-token: write`** at workflow level (as above) is.
+
+#### 6. Dry-run on TestPyPI (optional but recommended)
+
+Repeat step 3 on **[TestPyPI](https://test.pypi.org/manage/account/publishing/)** with the same
+GitHub fields but project name e.g. `cyphal-reassemble` on test.pypi.org.
+
+Add a second publish step (or separate workflow) temporarily:
+
+```yaml
+- uses: pypa/gh-action-pypi-publish@release/v1
+  with:
+    repository-url: https://test.pypi.org/legacy/
+    packages-dir: wheelhouse/
+```
+
+Run via **Actions → Wheels → Run workflow**. Then:
+
+```bash
+pip install --index-url https://test.pypi.org/simple/ cyphal-reassemble
+```
+
+Remove or disable TestPyPI publish before the real `v*` tag.
+
+#### 7. First production release
+
+After the workflow is on `main` and steps 3–4 are done:
+
+```bash
+# version already bumped in pyproject.toml, e.g. 0.2.0
+git tag v0.2.0
+git push origin v0.2.0
+```
+
+Watch **Actions → Wheels**. On success:
+
+```bash
+pip install cyphal-reassemble==0.2.0
+python -c "from cyphal_reassemble import resolve_binary; print(resolve_binary())"
+```
+
+Expected: path under `.../site-packages/cyphal_reassemble/_bin/cyphal-reassemble`.
+
+#### Troubleshooting
+
+| Symptom | Likely cause |
+| --- | --- |
+| `invalid-publisher` | Typo in owner/repo/workflow/environment; or workflow not on default branch yet |
+| `Environment `pypi` not found` | GitHub environment not created (step 4) |
+| `Resource not accessible by integration` | Workflow missing `id-token: write` |
+| Upload ok but `pip install` finds no wheel | Platform mismatch — v1 wheel is Linux x86_64 only |
+| Token / permission errors | Do not use API tokens; fix trusted publisher config instead |
+
 
 ### Consumer install (target UX)
 
