@@ -106,7 +106,8 @@ pycyphal is treated as a strong reference, not an infallible ground truth.
 | Test framework | CTest + **GoogleTest** |
 | Test fixtures | **Vendored** Arrow/Parquet fixtures exported from the pipeline |
 | Error handling | Log to `stderr`, skip bad frame/transfer, continue; emit summary counts; non-zero exit only on fatal I/O/schema errors |
-| Repo location | `/home/lasse/work/canedge/cyphal-reassemble` (new git repo, MIT license) |
+| Repo location | `/home/lasse/work/canedge/cyphal-reassemble` (new git repo, MIT license, hosted on **GitHub**) |
+| CI | None initially; **GitHub Actions** later (build + test, eventually release artifact) |
 
 ## External interface
 
@@ -310,8 +311,8 @@ Each unit has one responsibility and a small, testable interface.
   vendored (two source files), no external fetch.
 - **Build:** `cmake -B build && cmake --build build` → `build/cyphal-reassemble`.
 - **Deploy:** copy/symlink the binary onto `PATH`; the pipeline invokes it by name via
-  `subprocess`. No CI required initially. (A GitLab CI job producing a release artifact,
-  mirroring the pipeline's existing `.gitlab-ci.yml` pattern, can be added later.)
+  `subprocess`. No CI required initially. (A GitHub Actions workflow that builds and tests
+  the binary — and eventually produces a release artifact — can be added later.)
 
 ### Pipeline integration (informative — implemented in the pipeline repo, not here)
 
