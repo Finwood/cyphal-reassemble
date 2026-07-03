@@ -138,7 +138,7 @@ build artifact staged immediately before `hatchling` / wheel assembly.
 ### Wheel filename (example)
 
 ```
-cyphal_reassemble-0.2.0-py3-none-manylinux_2_28_x86_64.whl
+cyphal_reassemble-0.1.0-py3-none-manylinux_2_28_x86_64.whl
 ```
 
 #### What the filename tags mean
@@ -269,7 +269,7 @@ __version_arrow__` for support diagnostics.
 ## Release workflow
 
 ```
-tag v0.2.0 on main
+tag v0.1.0 on main
     → GitHub Actions: wheels.yml
     → cibuildwheel builds manylinux_2_28_x86_64 wheel + smoke tests
     → upload to GitHub Release artifacts (optional)
@@ -391,15 +391,15 @@ Remove or disable TestPyPI publish before the real `v*` tag.
 After the workflow is on `main` and steps 3–4 are done:
 
 ```bash
-# version already bumped in pyproject.toml, e.g. 0.2.0
-git tag v0.2.0
-git push origin v0.2.0
+# version in pyproject.toml is already 0.1.0
+git tag v0.1.0
+git push origin v0.1.0
 ```
 
 Watch **Actions → Wheels**. On success:
 
 ```bash
-pip install cyphal-reassemble==0.2.0
+pip install cyphal-reassemble==0.1.0
 python -c "from cyphal_reassemble import resolve_binary; print(resolve_binary())"
 ```
 

@@ -29,7 +29,7 @@ Summary checklist:
 - [ ] PyPI trusted publisher: `Finwood` / `cyphal-reassemble` / `wheels.yml` / environment `pypi`
 - [ ] GitHub environment **`pypi`** created on the repo
 - [ ] Optional: TestPyPI pending publisher + manual `workflow_dispatch`
-- [ ] First tag `v0.2.0` → verify `pip install cyphal-reassemble`
+- [ ] First tag `v0.1.0` → verify `pip install cyphal-reassemble`
 
 ---
 
@@ -440,28 +440,30 @@ git commit -m "docs: PyPI install and wheel build Makefile targets"
 
 ---
 
-## Task 7: First release
+## Task 7: Tag and release v0.1.0
 
 **Files:**
-- Modify: `pyproject.toml` (version bump)
+- Confirm: `pyproject.toml` (version already `0.1.0`)
 
-- [ ] **Step 1: Bump version**
+- [ ] **Step 1: Confirm version**
 
-Set `version = "0.2.0"` in `pyproject.toml` (first release with bundled binary).
+Ensure `pyproject.toml` has `version = "0.1.0"` (matches the existing Python wrapper; first
+PyPI release ships the platform wheel at the same version — no bump required).
 
 - [ ] **Step 2: Tag and publish**
 
 ```bash
-git add pyproject.toml
-git commit -m "chore: release v0.2.0"
-git tag v0.2.0
-git push origin main --tags
+git tag v0.1.0
+git push origin v0.1.0
 ```
+
+The `wheels.yml` workflow runs on `v*` tags, builds the platform wheel, and publishes to PyPI
+via trusted publishing.
 
 - [ ] **Step 3: Verify PyPI**
 
 ```bash
-pip install cyphal-reassemble==0.2.0
+pip install cyphal-reassemble==0.1.0
 python -c "from cyphal_reassemble import resolve_binary; print(resolve_binary())"
 ```
 
@@ -469,7 +471,7 @@ Expected: path under `site-packages/cyphal_reassemble/_bin/cyphal-reassemble`.
 
 - [ ] **Step 4: Integrate downstream**
 
-In frame-decoding pipeline: replace local build / `CYPHAL_REASSEMBLE_BIN` with PyPI dependency on `cyphal-reassemble>=0.2.0`.
+In frame-decoding pipeline: replace local build / `CYPHAL_REASSEMBLE_BIN` with PyPI dependency on `cyphal-reassemble>=0.1.0`.
 
 ---
 
