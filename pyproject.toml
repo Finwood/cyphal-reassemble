@@ -20,6 +20,15 @@ sources = ["py"]
 # Include staged _bin/cyphal-reassemble even though it is gitignored locally.
 ignore-vcs = true
 
+[tool.cibuildwheel]
+build = "cp312-manylinux_x86_64"
+archs = ["x86_64"]
+manylinux-x86_64-image = "manylinux_2_28"
+before-all = "bash scripts/install_arrow_cpp.sh"
+before-build = "pip install auditwheel patchelf build wheel hatchling"
+build-command = "bash scripts/build_wheel.sh {output_dir}"
+test-command = "bash scripts/test_installed_wheel.sh {project}"
+
 [tool.hatch.build.targets.sdist]
 include = [
   "/py/cyphal_reassemble",
