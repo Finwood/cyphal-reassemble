@@ -68,6 +68,10 @@ repaired for portability with **auditwheel** (Linux) / **delocate** (macOS).
 | sdist | Continue publishing source tree | Advanced users / unsupported platforms can still `make` |
 | Binary RPATH | `$ORIGIN` (set by auditwheel repair) | `.so` files colocated with exe under `_bin/` |
 | Versioning | Single package version (wrapper + binary lockstep) | Same repo, same tag; avoids ABI skew between Python facade and CLI |
+| Publish target | **Public PyPI** via GitHub Actions **trusted publishing** | Standard install UX; no long-lived PyPI tokens in secrets |
+| P0 platform | **`manylinux_2_28_x86_64` only** | Matches current pipeline; aarch64 / macOS deferred |
+| Wheel ABI tag | **`py3-none`** (one wheel per platform, all Python 3.10–3.14) | Python code is pure; bundled binary is package data, not a `cp312` extension |
+| Release cadence | Tag-driven publish on semver tags | `v*` tag → build wheels → trusted publish to PyPI |
 
 ---
 
@@ -137,8 +141,24 @@ build artifact staged immediately before `hatchling` / wheel assembly.
 cyphal_reassemble-0.2.0-py3-none-manylinux_2_28_x86_64.whl
 ```
 
-The `py3-none` abi tag reflects pure Python modules; platform specificity comes from the
-`manylinux_2_28_x86_64` tag and bundled ELF payload.
+#### What the filename tags mean
+
+Every wheel name follows `{name}-{version}-{python tag}-{abi tag}-{platform tag}.whl`:
+
+| Tag | Example | Meaning |
+| --- | --- | --- |
+| **python tag** | `py3` | Any CPython 3.x interpreter (3.10–3.14) |
+| **abi tag** | `none` | No interpreter-specific native **Python extension** (`.so` importable as a module) |
+| **platform tag** | `manylinux_2_28_x86_64` | Linux x86_64 with glibc ≥ manylinux_2_28 floor |
+
+**Our choice: `py3-none-manylinux_2_28_x86_64`** — one wheel per Linux x86_64 platform, installable
+on Python 3.10 through 3.14. The bundled `cyphal-reassemble` executable is **package data** under
+`_bin/`, not a Python C extension, so it does not need a per-version tag like `cp312`.
+
+**Alternative (not chosen):** cibuildwheel’s default emits **one wheel per Python version**,
+e.g. `cp312-cp312-manylinux_2_28_x86_64`, `cp313-cp313-…`. Those wheels would contain
+identical `_bin/` trees but pip only accepts the wheel whose `cp312` tag matches the running
+interpreter. That multiplies CI time and PyPI uploads without benefit for this package.
 
 ---
 
@@ -163,12 +183,12 @@ checkout (+ submodules)
 Add `.github/workflows/wheels.yml` (or extend CI with a `release` job) driven by
 **cibuildwheel**:
 
-| Setting | Proposed value |
+| Setting | Value (resolved) |
 | --- | --- |
-| `CIBW_BUILD` | `cp312-*` initially; expand to `cp3{10,11,12,13,14}-*` when validated |
+| `CIBW_BUILD` | `cp312-manylinux_x86_64` (single build job; wheel tagged `py3-none`) |
 | Linux image | `manylinux_2_28` |
-| Linux arch | `x86_64` first; add `aarch64` when pipeline needs it |
-| macOS | Defer, or `arm64` + `x86_64` if macOS consumers exist |
+| Linux arch | **`x86_64` only** (v1) |
+| macOS / aarch64 | **Deferred** |
 | `before-build` | Install Arrow apt repo + `make` (reuse existing CI snippet) |
 | `repair-wheel-command` | N/A — repair happens **before** Python packaging (see below) |
 
@@ -212,15 +232,15 @@ packages = ["py/cyphal_reassemble"]
 
 ## Platform matrix (phased)
 
-| Phase | Platforms | Trigger |
+| Phase | Platforms | Status |
 | --- | --- | --- |
-| **P0** | `manylinux_2_28_x86_64` | Pipeline runs on Linux amd64 |
-| **P1** | `manylinux_2_28_aarch64` | ARM CI / Graviton consumers |
-| **P2** | `macosx_*` (arm64, optionally x86_64) | macOS dev or CI consumers |
+| **P0 (v1)** | `manylinux_2_28_x86_64` | **Approved** — frame-decoding pipeline |
+| **P1** | `manylinux_2_28_aarch64` | Deferred |
+| **P2** | `macosx_*` | Deferred |
 | **—** | Windows | Out of scope until requested |
 
-Each platform is an independent cibuildwheel job producing its own wheel with the same
-version number. PyPI serves the correct wheel per `pip install` platform probe.
+v1 ships **one wheel** per release: `py3-none-manylinux_2_28_x86_64`. PyPI serves it to
+matching `pip install` clients on Linux x86_64.
 
 ---
 
@@ -251,10 +271,13 @@ __version_arrow__` for support diagnostics.
 ```
 tag v0.2.0 on main
     → GitHub Actions: wheels.yml
-    → cibuildwheel matrix builds + tests
-    → upload to GitHub Release artifacts
-    → publish to PyPI (trusted publishing or API token)
+    → cibuildwheel builds manylinux_2_28_x86_64 wheel + smoke tests
+    → upload to GitHub Release artifacts (optional)
+    → publish to PyPI via trusted publishing (OIDC; no API token)
 ```
+
+Configure PyPI trusted publisher for this repo/workflow per
+[PyPI trusted publishing docs](https://docs.pypi.org/trusted-publishers/).
 
 Version bump in `pyproject.toml` remains the single source of truth. C++ and Python share
 that version; no separate `-bin` package version.
@@ -304,20 +327,15 @@ No C++ source changes required for P0.
 
 ---
 
-## Open decisions (need product owner input)
+## Resolved decisions (2026-07-03)
 
-These do not block writing this architecture but **must be resolved before implementation
-starts**:
-
-1. **Publish target** — Public PyPI, private index (e.g. GitHub Packages), or GitHub Release
-   artifacts only?
-2. **P0 platform** — Is `manylinux_2_28_x86_64` alone sufficient for the frame-decoding
-   pipeline, or is `aarch64` required at launch?
-3. **macOS** — Any near-term macOS consumers, or Linux-only for v1 wheels?
-4. **Python abi tags** — Start with `py3-none` (one wheel per platform for all Python 3.10–3.14)
-   or per-interpreter `cp312` wheels via cibuildwheel’s default matrix?
-5. **Release cadence** — Tag-driven PyPI publish on every semver tag, or manual workflow
-   dispatch?
+| # | Decision | Resolution |
+| --- | --- | --- |
+| 1 | Publish target | **Public PyPI** with **trusted publishing** from GitHub Actions |
+| 2 | P0 platform | **`manylinux_2_28_x86_64` only** |
+| 3 | macOS / aarch64 | **Deferred** (not in v1) |
+| 4 | Wheel ABI tag | **`py3-none`** — one wheel per platform for all supported Python 3.x (see above) |
+| 5 | Release cadence | **Tag-driven** — semver tag triggers build + PyPI publish |
 
 ---
 
@@ -345,7 +363,7 @@ starts**:
 
 ## Next steps
 
-1. Resolve open decisions (publish target, platform matrix).
-2. Write implementation plan from this architecture.
+1. Write implementation plan from this architecture.
+2. Configure PyPI trusted publisher for the wheels workflow.
 3. Implement P0 (`manylinux_2_28_x86_64` + hatchling + auditwheel + wheel smoke tests).
 4. Publish first platform wheel; integrate into frame-decoding pipeline CI.
