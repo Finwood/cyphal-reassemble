@@ -1,9 +1,30 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Platform wheel build artifacts
+py/cyphal_reassemble/_bin/*
+!py/cyphal_reassemble/_bin/.gitkeep
+wheelhouse/
+
+# Virtual environments
+.venv
+
+# Secrets and logs
+.env
+*.log
+
 # Build output
 /build/
 /cmake-build-*/
 
 # Editor / OS
 .vscode/
+.cursor/
 .idea/
 *.swp
 .DS_Store
@@ -13,12 +34,3 @@ __pycache__/
 
 # Vendored dependency build artifacts
 third_party/**/build/
-
-# uv virtual environment
-.venv/
-
-# Platform wheel build artifacts (never commit)
-py/cyphal_reassemble/_bin/*
-!py/cyphal_reassemble/_bin/.gitkeep
-dist/
-wheelhouse/
