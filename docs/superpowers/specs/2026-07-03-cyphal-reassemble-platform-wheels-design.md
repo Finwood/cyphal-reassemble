@@ -65,7 +65,7 @@ repaired for portability with **auditwheel** (Linux) / **delocate** (macOS).
 | Build orchestration | **cibuildwheel** in GitHub Actions | Standard matrix (manylinux / macOS), hooks for compile + repair |
 | Build backend | **hatchling** (replace `uv_build` for releases) | `force-include` / artifacts for `_bin/`; `uv_build` has no custom hook story |
 | Dev builds | Keep `make` + shared system Arrow | Fast iteration; no auditwheel in dev loop |
-| sdist | Continue publishing source tree | Advanced users / unsupported platforms can still `make` |
+| Unsupported platforms | Git clone + `make` | No sdist published; full C++ source only in git |
 | Binary RPATH | `$ORIGIN` (set by auditwheel repair) | `.so` files colocated with exe under `_bin/` |
 | Versioning | Single package version (wrapper + binary lockstep) | Same repo, same tag; avoids ABI skew between Python facade and CLI |
 | Publish target | **Public PyPI** via GitHub Actions **trusted publishing** | Standard install UX; no long-lived PyPI tokens in secrets |
@@ -424,8 +424,9 @@ uv add cyphal-reassemble        # or: pip install cyphal-reassemble
 python -c "from cyphal_reassemble import reassemble; print(reassemble)"
 ```
 
-Unsupported platform: `pip install` falls back to sdist + manual `make`, or fails with a
-clear “no wheel for your platform” message from the index.
+Unsupported platform: no matching wheel on PyPI — clone the repo with submodules,
+build locally (`make` + `uv sync`), or `pip install` fails with a clear “no wheel for
+your platform” message.
 
 ---
 

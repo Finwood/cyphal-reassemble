@@ -17,3 +17,12 @@ def binary_path() -> Path:
 @pytest.fixture(scope="session")
 def fixture_dir() -> Path:
     return FIXTURE_DIR
+
+
+@pytest.fixture(scope="session")
+def require_bundled_binary() -> Path:
+    """Skip unless _bin/cyphal-reassemble exists (wheel install or staged bundle)."""
+    bundled = Path(__file__).resolve().parents[1] / "py" / "cyphal_reassemble" / "_bin" / "cyphal-reassemble"
+    if not bundled.is_file():
+        pytest.skip("bundled binary not present")
+    return bundled

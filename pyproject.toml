@@ -15,8 +15,10 @@ dev = [
     "ruff>=0.3",
 ]
 
-[tool.uv.build-backend]
-module-root = "py"
+[tool.hatch.build.targets.wheel]
+sources = ["py"]
+# Include staged _bin/cyphal-reassemble even though it is gitignored locally.
+ignore-vcs = true
 
 [tool.pytest.ini_options]
 testpaths = ["python_tests"]
@@ -28,5 +30,5 @@ line-length = 120
 extend-select = ["I"]
 
 [build-system]
-requires = ["uv_build>=0.11.26,<0.12"]
-build-backend = "uv_build"
+requires = ["hatchling"]
+build-backend = "hatchling.build"

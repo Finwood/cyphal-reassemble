@@ -107,6 +107,18 @@ Environment:
 
 - `CYPHAL_REASSEMBLE_BIN` — override path to the executable (optional)
 
+### Install from PyPI (Linux x86_64)
+
+```bash
+pip install cyphal-reassemble
+# or: uv add cyphal-reassemble
+```
+
+Requires **Linux x86_64** with glibc ≥ manylinux_2_28. The wheel bundles the
+`cyphal-reassemble` binary and `libarrow`; no local C++ build needed.
+
+Other platforms: clone this repo, run `make`, then `uv sync` (editable install).
+
 Run Python tests:
 
 ```bash

@@ -7,9 +7,18 @@
 .idea/
 *.swp
 .DS_Store
+__pycache__/
+*.pyc
+*.deb
 
 # Vendored dependency build artifacts
 third_party/**/build/
 
 # uv virtual environment
 .venv/
+
+# Platform wheel build artifacts (never commit)
+py/cyphal_reassemble/_bin/*
+!py/cyphal_reassemble/_bin/.gitkeep
+dist/
+wheelhouse/

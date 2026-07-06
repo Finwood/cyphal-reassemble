@@ -1,0 +1,70 @@
+name: Wheels
+
+on:
+  push:
+    tags:
+      - "v*"
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-wheels:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      # Hatchling emits py3-none-any, then auditwheel retags to manylinux. cibuildwheel's
+      # default PEP 517 build rejects none-any wheels before repair, so we run the same
+      # build_wheel.sh flow inside the official manylinux_2_28 image instead.
+      - name: Build and test manylinux wheel
+        run: |
+          docker run --rm \
+            -v "$PWD:/project" \
+            -w /project \
+            quay.io/pypa/manylinux_2_28_x86_64 \
+            bash -c '
+              set -euo pipefail
+              export PATH="/opt/python/cp312-cp312/bin:${PATH}"
+              export CIBUILDWHEEL=1
+              export PYTHON=python
+              bash scripts/install_arrow_cpp.sh
+              python -m pip install --upgrade pip auditwheel build wheel hatchling patchelf pytest "pyarrow>=15"
+              mkdir -p wheelhouse
+              bash scripts/build_wheel.sh wheelhouse
+              mapfile -t wheels < <(compgen -G "wheelhouse/cyphal_reassemble-*-manylinux_*.whl")
+              if (( ${#wheels[@]} != 1 )); then
+                echo "expected exactly one manylinux wheel in wheelhouse/" >&2
+                ls -la wheelhouse/ || true
+                exit 1
+              fi
+              python -m pip install "${wheels[0]}"
+              PYTHON=python bash scripts/test_installed_wheel.sh /project
+            '
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cyphal-reassemble-wheels
+          path: wheelhouse/*.whl
+          if-no-files-found: error
+
+  publish:
+    needs: build-wheels
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: cyphal-reassemble-wheels
+          path: wheelhouse
+
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: wheelhouse/

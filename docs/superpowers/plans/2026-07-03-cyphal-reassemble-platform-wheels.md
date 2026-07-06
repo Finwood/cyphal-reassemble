@@ -172,18 +172,8 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["py/cyphal_reassemble"]
-
-[tool.hatch.build.targets.wheel.force-include]
-"py/cyphal_reassemble/_bin" = "cyphal_reassemble/_bin"
-
-[tool.hatch.build.targets.sdist]
-include = [
-  "/py/cyphal_reassemble",
-  "/python_tests",
-  "/scripts",
-  "/tests/data",
-]
+sources = ["py"]
+ignore-vcs = true
 ```
 
 Keep `[project]`, `[dependency-groups]`, `[tool.pytest.*]`, `[tool.ruff.*]` unchanged.
