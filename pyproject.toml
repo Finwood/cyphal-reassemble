@@ -20,14 +20,6 @@ sources = ["py"]
 # Include staged _bin/cyphal-reassemble even though it is gitignored locally.
 ignore-vcs = true
 
-[tool.hatch.build.targets.sdist]
-include = [
-  "/py/cyphal_reassemble",
-  "/python_tests",
-  "/scripts",
-  "/tests/data",
-]
-
 [tool.pytest.ini_options]
 testpaths = ["python_tests"]
 
