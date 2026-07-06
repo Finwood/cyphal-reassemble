@@ -178,7 +178,7 @@ This repo is a **hybrid monorepo**: C++ (CMake/Makefile) + Python (uv project at
 | Python venv + deps | uv | `uv sync` |
 | Run tests | uv (or Make alias) | `uv run pytest python_tests/ -v` or `make python-test` |
 | Lint | uv | `uv run ruff check .` |
-| Build wheel/sdist | uv | `uv build` (uses bundled `uv_build`) |
+| Build wheel | uv / hatchling | `uv run bash scripts/build_wheel.sh` (release); `uv sync` (dev) |
 
 **Do not** document or use `pip install`, `poetry`, or ad-hoc virtualenv setup for this project.
 
