@@ -1,6 +1,6 @@
 [project]
 name = "cyphal-reassemble"
-version = "0.1.0"
+version = "0.2.0.dev1"
 description = "Fast Cyphal/CAN transfer reassembly (Python wrapper over libcanard binary)"
 readme = "README.md"
 license = { text = "MIT" }
