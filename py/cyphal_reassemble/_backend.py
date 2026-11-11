@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+import threading
 from pathlib import Path
 from typing import Iterable
 
@@ -55,6 +56,23 @@ def run_reassemble_ipc_stream(
     )
     assert proc.stdin is not None
     assert proc.stdout is not None
+    assert proc.stderr is not None
+
+    # The binary flushes transfer batches while it is still reading frames.
+    # Read both pipes on the side, or a full pipe buffer deadlocks the child.
+    stdout_parts: list[bytes] = []
+    stderr_parts: list[bytes] = []
+
+    def _read_stdout() -> None:
+        stdout_parts.append(proc.stdout.read())
+
+    def _read_stderr() -> None:
+        stderr_parts.append(proc.stderr.read())
+
+    stdout_thread = threading.Thread(target=_read_stdout, daemon=True)
+    stderr_thread = threading.Thread(target=_read_stderr, daemon=True)
+    stdout_thread.start()
+    stderr_thread.start()
 
     try:
         with ipc.new_stream(proc.stdin, schema) as writer:
@@ -63,12 +81,15 @@ def run_reassemble_ipc_stream(
         proc.stdin.close()
     except Exception:
         proc.kill()
+        stdout_thread.join()
+        stderr_thread.join()
         proc.wait()
         raise
 
-    # Drain pipes before wait() — otherwise a full stdout/stderr buffer deadlocks the child.
-    stdout_data = proc.stdout.read()
-    stderr_data = proc.stderr.read() if proc.stderr else b""
+    stdout_thread.join()
+    stderr_thread.join()
+    stdout_data = stdout_parts[0] if stdout_parts else b""
+    stderr_data = stderr_parts[0] if stderr_parts else b""
     rc = proc.wait()
     if rc != 0:
         tail = stderr_data.decode(errors="replace")[-4000:]
