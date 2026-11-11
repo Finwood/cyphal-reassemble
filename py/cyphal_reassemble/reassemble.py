@@ -4,7 +4,7 @@ from typing import Iterable, Iterator
 
 import pyarrow as pa
 
-from cyphal_reassemble._backend import run_reassemble_ipc_stream
+from cyphal_reassemble._backend import ReassembleSession
 from cyphal_reassemble.schema import FRAME_INPUT_COLUMNS, TRANSFER_SCHEMA, validate_frame_schema
 
 
@@ -27,7 +27,10 @@ def reassemble_batches(
     *,
     schema: pa.Schema | None = None,
 ) -> Iterator[pa.RecordBatch]:
-    """Reassemble Cyphal transfers from frame RecordBatches (one reassembly domain)."""
+    """Reassemble Cyphal transfers from frame RecordBatches (one reassembly domain).
+
+    Transfer batches are yielded as the backend produces them (streaming).
+    """
     batches = iter(batches)
     first = next(batches, None)
     if first is None:
@@ -39,8 +42,8 @@ def reassemble_batches(
             ]
         )
         validate_frame_schema(frame_schema)
-        reader = run_reassemble_ipc_stream([], schema=frame_schema)
-        yield from reader
+        with ReassembleSession(frame_schema) as session:
+            yield from session.run([])
         return
 
     validate_frame_schema(first.schema)
@@ -52,8 +55,8 @@ def reassemble_batches(
             validate_frame_schema(batch.schema)
             yield _project_frame_batch(batch)
 
-    reader = run_reassemble_ipc_stream(all_batches(), schema=projected_first.schema)
-    yield from reader
+    with ReassembleSession(projected_first.schema) as session:
+        yield from session.run(all_batches())
 
 
 def reassemble(frames: pa.Table) -> pa.Table:

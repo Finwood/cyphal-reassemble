@@ -4,6 +4,7 @@ import os
 import shutil
 import subprocess
 import threading
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Iterable
 
@@ -40,58 +41,156 @@ def resolve_binary() -> Path:
     )
 
 
+class ReassembleSession:
+    """Manage a live cyphal-reassemble subprocess with concurrent stdin/stdout IPC.
+
+    Use as a context manager. Prefer :meth:`run` so frames are written on a
+    background thread while transfer batches are streamed from stdout.
+    """
+
+    def __init__(self, schema: pa.Schema, *, binary: Path | None = None) -> None:
+        self._schema = schema
+        self._binary = binary
+        self._proc: subprocess.Popen[bytes] | None = None
+        self._stderr_thread: threading.Thread | None = None
+        self._writer_thread: threading.Thread | None = None
+        self._stderr_parts: list[bytes] = []
+        self._write_error: BaseException | None = None
+        self._rc: int | None = None
+        self._finished = False
+        self._exit_checked = False
+
+    def __enter__(self) -> ReassembleSession:
+        exe = self._binary or resolve_binary()
+        self._proc = subprocess.Popen(
+            [str(exe)],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        assert self._proc.stdin is not None
+        assert self._proc.stdout is not None
+        assert self._proc.stderr is not None
+
+        self._stderr_thread = threading.Thread(target=self._read_stderr, daemon=True)
+        self._stderr_thread.start()
+        return self
+
+    def __exit__(self, exc_type: type[BaseException] | None, exc: BaseException | None, tb: object) -> None:
+        # If the caller already failed, still tear down but don't mask that error
+        # with a secondary exit-status exception.
+        self._ensure_finished(raise_on_error=exc_type is None)
+        return None
+
+    def run(self, batches: Iterable[pa.RecordBatch]) -> Iterator[pa.RecordBatch]:
+        """Write frame batches concurrently; yield transfer batches as they arrive."""
+        self._require_open()
+        if self._writer_thread is not None:
+            raise RuntimeError("ReassembleSession.run() already started")
+
+        self._writer_thread = threading.Thread(
+            target=self._write_stdin,
+            args=(batches,),
+            daemon=True,
+        )
+        self._writer_thread.start()
+
+        assert self._proc is not None
+        assert self._proc.stdout is not None
+        try:
+            reader = ipc.open_stream(self._proc.stdout)
+            yield from reader
+        except BaseException:
+            self._kill()
+            raise
+        finally:
+            if self._writer_thread is not None:
+                self._writer_thread.join()
+            try:
+                self._proc.stdout.close()
+            except Exception:
+                pass
+
+        self._ensure_finished(raise_on_error=True)
+
+    def _require_open(self) -> None:
+        if self._proc is None:
+            raise RuntimeError("ReassembleSession must be used as a context manager")
+
+    def _read_stderr(self) -> None:
+        assert self._proc is not None
+        assert self._proc.stderr is not None
+        self._stderr_parts.append(self._proc.stderr.read())
+
+    def _write_stdin(self, batches: Iterable[pa.RecordBatch]) -> None:
+        assert self._proc is not None
+        assert self._proc.stdin is not None
+        try:
+            try:
+                with ipc.new_stream(self._proc.stdin, self._schema) as writer:
+                    for batch in batches:
+                        writer.write_batch(batch)
+            finally:
+                # Arrow may leave the pipe open after the writer closes; the child
+                # only finishes once it sees stdin EOF.
+                if self._proc.stdin is not None and not self._proc.stdin.closed:
+                    self._proc.stdin.close()
+        except BaseException as exc:
+            self._write_error = exc
+            self._kill()
+
+    def _kill(self) -> None:
+        if self._proc is not None and self._proc.poll() is None:
+            try:
+                self._proc.kill()
+            except Exception:
+                pass
+
+    def _ensure_finished(self, *, raise_on_error: bool) -> None:
+        if self._proc is None:
+            return
+
+        if self._writer_thread is not None:
+            self._writer_thread.join()
+
+        if self._proc.stdin is not None and not self._proc.stdin.closed:
+            try:
+                self._proc.stdin.close()
+            except Exception:
+                pass
+
+        if self._proc.stdout is not None and not self._proc.stdout.closed:
+            try:
+                # Unblock the child if the caller stopped reading early.
+                self._proc.stdout.read()
+                self._proc.stdout.close()
+            except Exception:
+                pass
+
+        if self._stderr_thread is not None:
+            self._stderr_thread.join()
+
+        if not self._finished:
+            self._rc = self._proc.wait()
+            self._finished = True
+
+        if not raise_on_error or self._exit_checked:
+            return
+        self._exit_checked = True
+
+        if self._write_error is not None:
+            raise self._write_error
+        if self._rc is not None and self._rc != 0:
+            tail = (self._stderr_parts[0] if self._stderr_parts else b"").decode(errors="replace")[-4000:]
+            raise RuntimeError(f"cyphal-reassemble exited {self._rc}:\n{tail}")
+
+
 def run_reassemble_ipc_stream(
     batches: Iterable[pa.RecordBatch],
     *,
     schema: pa.Schema,
     binary: Path | None = None,
-) -> pa.RecordBatchReader:
-    """Spawn cyphal-reassemble, write frame IPC stream to stdin, return stdout reader."""
-    exe = binary or resolve_binary()
-    proc = subprocess.Popen(
-        [str(exe)],
-        stdin=subprocess.PIPE,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
-    assert proc.stdin is not None
-    assert proc.stdout is not None
-    assert proc.stderr is not None
-
-    # The binary flushes transfer batches while it is still reading frames.
-    # Read both pipes on the side, or a full pipe buffer deadlocks the child.
-    stdout_parts: list[bytes] = []
-    stderr_parts: list[bytes] = []
-
-    def _read_stdout() -> None:
-        stdout_parts.append(proc.stdout.read())
-
-    def _read_stderr() -> None:
-        stderr_parts.append(proc.stderr.read())
-
-    stdout_thread = threading.Thread(target=_read_stdout, daemon=True)
-    stderr_thread = threading.Thread(target=_read_stderr, daemon=True)
-    stdout_thread.start()
-    stderr_thread.start()
-
-    try:
-        with ipc.new_stream(proc.stdin, schema) as writer:
-            for batch in batches:
-                writer.write_batch(batch)
-        proc.stdin.close()
-    except Exception:
-        proc.kill()
-        stdout_thread.join()
-        stderr_thread.join()
-        proc.wait()
-        raise
-
-    stdout_thread.join()
-    stderr_thread.join()
-    stdout_data = stdout_parts[0] if stdout_parts else b""
-    stderr_data = stderr_parts[0] if stderr_parts else b""
-    rc = proc.wait()
-    if rc != 0:
-        tail = stderr_data.decode(errors="replace")[-4000:]
-        raise RuntimeError(f"cyphal-reassemble exited {rc}:\n{tail}")
-    return ipc.open_stream(pa.BufferReader(stdout_data))
+) -> Iterator[pa.RecordBatch]:
+    """Spawn cyphal-reassemble and stream transfer batches as they are produced."""
+    with ReassembleSession(schema, binary=binary) as session:
+        yield from session.run(batches)
