@@ -2,7 +2,7 @@ from collections import Counter
 from pathlib import Path
 
 import pyarrow as pa
-from cyphal_reassemble.reassemble import reassemble, reassemble_batches
+from cyphal_reassemble.reassemble import _project_frame_batch, reassemble, reassemble_batches
 from pyarrow import ipc
 
 
@@ -56,3 +56,43 @@ def test_reassemble_empty_input(binary_path):
     empty = pa.table({"timestamp": [], "id": [], "data": []}, schema=schema)
     got = reassemble(empty)
     assert got.num_rows == 0
+
+
+def test_trust_schema_validates_only_the_first_batch(
+    binary_path, fixture_dir, monkeypatch
+):
+    frames = _load_table(fixture_dir / "frames_CAN1.arrows")
+    mid = max(frames.num_rows // 2, 1)
+    first = pa.RecordBatch.from_arrays(
+        [
+            frames.column(name).slice(0, mid).combine_chunks()
+            for name in frames.schema.names
+        ],
+        schema=frames.schema,
+    )
+    second_raw = pa.RecordBatch.from_arrays(
+        [
+            frames.column(name).slice(mid).combine_chunks()
+            for name in frames.schema.names
+        ],
+        schema=frames.schema,
+    )
+    second = _project_frame_batch(second_raw)
+    calls = {"n": 0}
+
+    def wrapped(schema):
+        calls["n"] += 1
+        from cyphal_reassemble import schema as schema_mod
+
+        return schema_mod.validate_frame_schema(schema)
+
+    import sys
+
+    monkeypatch.setattr(
+        sys.modules["cyphal_reassemble.reassemble"],
+        "validate_frame_schema",
+        wrapped,
+    )
+    got = list(reassemble_batches([first, second], trust_schema=True))
+    assert calls["n"] == 1
+    assert sum(batch.num_rows for batch in got) > 0

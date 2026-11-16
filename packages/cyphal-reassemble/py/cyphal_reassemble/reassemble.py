@@ -25,35 +25,37 @@ def _project_frame_batch(batch: pa.RecordBatch) -> pa.RecordBatch:
 def reassemble_batches(
     batches: Iterable[pa.RecordBatch],
     *,
-    schema: pa.Schema | None = None,
+    trust_schema: bool = False,
 ) -> Iterator[pa.RecordBatch]:
     """Reassemble Cyphal transfers from frame RecordBatches (one reassembly domain).
 
     Transfer batches are yielded as the backend produces them (streaming).
+
+    If ``trust_schema`` is true, the first batch is validated and projected once
+    and later batches are forwarded unchanged. The caller guarantees that those
+    later batches already match the projected schema.
     """
     batches = iter(batches)
     first = next(batches, None)
     if first is None:
-        frame_schema = schema or pa.schema(
-            [
-                pa.field("timestamp", pa.timestamp("us", tz="UTC")),
-                pa.field("id", pa.uint32()),
-                pa.field("data", pa.binary()),
-            ]
-        )
-        validate_frame_schema(frame_schema)
-        with ReassembleSession(frame_schema) as session:
-            yield from session.run([])
         return
 
     validate_frame_schema(first.schema)
     projected_first = _project_frame_batch(first)
 
-    def all_batches() -> Iterable[pa.RecordBatch]:
-        yield projected_first
-        for batch in batches:
-            validate_frame_schema(batch.schema)
-            yield _project_frame_batch(batch)
+    if trust_schema:
+
+        def all_batches() -> Iterable[pa.RecordBatch]:
+            yield projected_first
+            yield from batches
+
+    else:
+
+        def all_batches() -> Iterable[pa.RecordBatch]:
+            yield projected_first
+            for batch in batches:
+                validate_frame_schema(batch.schema)
+                yield _project_frame_batch(batch)
 
     with ReassembleSession(projected_first.schema) as session:
         yield from session.run(all_batches())
@@ -62,5 +64,5 @@ def reassemble_batches(
 def reassemble(frames: pa.Table) -> pa.Table:
     """Reassemble Cyphal transfers from a frame Table (one reassembly domain)."""
     validate_frame_schema(frames.schema)
-    batches = reassemble_batches(frames.to_batches(), schema=frames.schema)
+    batches = reassemble_batches(frames.to_batches())
     return pa.Table.from_batches(list(batches), schema=TRANSFER_SCHEMA)
