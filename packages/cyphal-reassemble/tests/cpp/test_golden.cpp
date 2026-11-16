@@ -51,6 +51,9 @@ std::multiset<Key> expected_fixture(const std::string& transfers_file) {
     auto table_result = reader->ToTable();
     EXPECT_TRUE(table_result.ok());
     std::shared_ptr<arrow::Table> table = table_result.ValueOrDie();
+    auto combined = table->CombineChunks();
+    EXPECT_TRUE(combined.ok()) << combined.status().ToString();
+    table = combined.ValueOrDie();
     auto type = std::static_pointer_cast<arrow::StringArray>(table->column(table->schema()->GetFieldIndex("type"))->chunk(0));
     auto id = std::static_pointer_cast<arrow::Int16Array>(table->column(table->schema()->GetFieldIndex("id"))->chunk(0));
     auto src = std::static_pointer_cast<arrow::UInt8Array>(table->column(table->schema()->GetFieldIndex("source"))->chunk(0));
@@ -78,3 +81,4 @@ void check_channel(const std::string& ch) {
 
 TEST(Golden, CAN1) { check_channel("CAN1"); }
 TEST(Golden, CAN2) { check_channel("CAN2"); }
+TEST(Golden, Mixed) { check_channel("mixed"); }

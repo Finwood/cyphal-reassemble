@@ -38,6 +38,14 @@ def test_reassemble_can2_golden(binary_path, fixture_dir):
     assert _table_keys(got) == _table_keys(expected)
 
 
+def test_reassemble_mixed_golden(binary_path, fixture_dir):
+    frames = _load_table(fixture_dir / "frames_mixed.arrows")
+    expected = _load_table(fixture_dir / "transfers_mixed.arrows")
+    got = reassemble(frames)
+    assert got.schema.equals(expected.schema, check_metadata=False)
+    assert _table_keys(got) == _table_keys(expected)
+
+
 def test_reassemble_batches_matches_table(binary_path, fixture_dir):
     frames = _load_table(fixture_dir / "frames_CAN1.arrows")
     batches = list(reassemble_batches(frames.to_batches()))

@@ -78,6 +78,7 @@ make test-golden           # golden parity tests (tests/data/)
 ```
 
 Golden fixtures under `tests/data/` are vendored from the frame-decoding pipeline.
+`frames_mixed.arrows` / `transfers_mixed.arrows` are channel CAN2 of logger 3544BCD3 session 00000509 with DroneCAN and Cyphal frames left in the input.
 
 ## License
 
