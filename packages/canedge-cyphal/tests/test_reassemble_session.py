@@ -1,7 +1,7 @@
 import os
 from collections.abc import Iterable, Iterator
 from pathlib import Path
-from threading import Thread
+from threading import Event, Thread
 
 import pyarrow as pa
 import pytest
@@ -105,13 +105,45 @@ def test_reassemble_frame_batches_unblocks_when_a_bus_worker_fails():
         except BaseException as exc:  # noqa: BLE001
             caught.append(exc)
 
-    thread = Thread(target=run)
+    thread = Thread(target=run, daemon=True)
     thread.start()
     thread.join(timeout=5)
     assert not thread.is_alive()
     assert len(caught) == 1
     assert isinstance(caught[0], RuntimeError)
     assert str(caught[0]) == "libcanard blew up"
+
+
+def test_yields_a_transfer_before_the_frame_scan_finishes():
+    release_rest = Event()
+    requested_rest = Event()
+
+    def frames() -> Iterator[pa.RecordBatch]:
+        yield _frames(["CAN1"])
+        requested_rest.set()
+        assert release_rest.wait(timeout=5)
+        yield _frames(["CAN1"])
+
+    generated = reassemble_frame_batches(
+        frames(),
+        compiled=compile_channel_map(None),
+        reassemble_batches=_fake([]),
+    )
+    pulled: list[pa.RecordBatch] = []
+
+    def pull_first() -> None:
+        pulled.append(next(generated))
+
+    thread = Thread(target=pull_first, daemon=True)
+    try:
+        thread.start()
+        assert requested_rest.wait(timeout=5)
+        thread.join(timeout=5)
+        assert not thread.is_alive()
+        assert pulled[0].num_rows == 1
+    finally:
+        release_rest.set()
+    assert len(list(generated)) == 1
 
 
 def test_two_channels_share_a_bus_and_a_later_channel_opens_another():

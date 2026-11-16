@@ -6,8 +6,9 @@ import uuid
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from queue import Queue
-from threading import Thread
+from queue import Empty, Full, Queue
+from threading import Event, Thread
+from typing import TypeVar
 
 import duckdb
 import pyarrow as pa
@@ -91,6 +92,21 @@ def _with_channel(batch: pa.RecordBatch, bus: str) -> pa.RecordBatch:
     )
 
 
+_QUEUE_WAIT = 0.05
+_SCAN_DONE = object()
+_T = TypeVar("_T")
+
+
+def _offer(queue: Queue[_T], item: _T, *, stop: Event, always: bool = False) -> bool:
+    while always or not stop.is_set():
+        try:
+            queue.put(item, timeout=_QUEUE_WAIT)
+            return True
+        except Full:
+            continue
+    return False
+
+
 def reassemble_frame_batches(
     batches: Iterable[pa.RecordBatch],
     *,
@@ -99,10 +115,17 @@ def reassemble_frame_batches(
         ..., Iterator[pa.RecordBatch]
     ] = library_reassemble_batches,
 ) -> Iterator[pa.RecordBatch]:
+    """Yield transfer batches while the frame scan is still running.
+
+    The scan runs on its own thread. Each bus queue and the transfer queue hold
+    at most four batches, so a slow writer stalls the scan instead of storing
+    the session.
+    """
     queues: dict[str, Queue[pa.RecordBatch | None]] = {}
     threads: list[Thread] = []
-    out: Queue[tuple[str, pa.RecordBatch | BaseException | None]] = Queue()
+    out: Queue[tuple[object, object]] = Queue(maxsize=4)
     errors: list[BaseException] = []
+    stop = Event()
 
     def consume(bus: str) -> None:
         def frames() -> Iterator[pa.RecordBatch]:
@@ -115,13 +138,13 @@ def reassemble_frame_batches(
         try:
             for transfer in reassemble_batches(frames(), trust_schema=True):
                 if transfer.num_rows:
-                    out.put((bus, transfer))
+                    _offer(out, (bus, transfer), stop=stop)
         except BaseException as exc:  # noqa: BLE001
             errors.append(exc)
             while queues[bus].get() is not None:
                 pass
         finally:
-            out.put((bus, None))
+            _offer(out, (bus, None), stop=stop, always=True)
 
     def open_bus(bus: str) -> None:
         if bus in queues:
@@ -133,34 +156,65 @@ def reassemble_frame_batches(
         threads.append(thread)
         thread.start()
 
-    try:
-        for batch in batches:
-            if batch.num_rows == 0:
-                continue
-            channels = [
-                value
-                for value in batch.column("channel").unique().to_pylist()
-                if value is not None
-            ]
-            for channel in channels:
-                bus, rti = assign_channel(compiled, str(channel))
-                mask = pc.equal(batch.column("channel"), channel)  # ty: ignore[missing-attribute]
-                subset = batch.filter(mask).select(["timestamp", "id", "data"])
-                open_bus(bus)
-                queues[bus].put(_project(subset, rti))
-    finally:
-        for queue in queues.values():
-            queue.put(None)
+    def feed() -> None:
+        try:
+            for batch in batches:
+                if stop.is_set() or errors:
+                    break
+                if batch.num_rows == 0:
+                    continue
+                channels = [
+                    value
+                    for value in batch.column("channel").unique().to_pylist()
+                    if value is not None
+                ]
+                for channel in channels:
+                    if stop.is_set() or errors:
+                        break
+                    bus, rti = assign_channel(compiled, str(channel))
+                    mask = pc.equal(batch.column("channel"), channel)  # ty: ignore[missing-attribute]
+                    subset = batch.filter(mask).select(["timestamp", "id", "data"])
+                    open_bus(bus)
+                    _offer(queues[bus], _project(subset, rti), stop=stop)
+        except BaseException as exc:  # noqa: BLE001
+            errors.append(exc)
+        finally:
+            for queue in queues.values():
+                _offer(queue, None, stop=stop, always=True)
+            _offer(out, (_SCAN_DONE, len(threads)), stop=stop, always=True)
+            close = getattr(batches, "close", None)
+            if callable(close):
+                close()
 
+    feeder = Thread(target=feed, name="canedge-cyphal-scan", daemon=True)
+    feeder.start()
+
+    def finish() -> None:
+        stop.set()
+        while feeder.is_alive() or any(thread.is_alive() for thread in threads):
+            try:
+                out.get(timeout=_QUEUE_WAIT)
+            except Empty:
+                continue
+        feeder.join()
+        for thread in threads:
+            thread.join()
+
+    expected: int | None = None
     finished = 0
-    while finished < len(threads):
-        bus, item = out.get()
-        if item is None:
-            finished += 1
-            continue
-        yield _with_channel(item, bus)
-    for thread in threads:
-        thread.join()
+    try:
+        while expected is None or finished < expected:
+            kind, payload = out.get()
+            if kind is _SCAN_DONE and isinstance(payload, int):
+                expected = payload
+                continue
+            if payload is None:
+                finished += 1
+                continue
+            if isinstance(payload, pa.RecordBatch):
+                yield _with_channel(payload, str(kind))
+    finally:
+        finish()
     if errors:
         raise errors[0]
 
