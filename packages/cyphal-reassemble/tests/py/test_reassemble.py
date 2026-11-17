@@ -66,23 +66,15 @@ def test_reassemble_empty_input(binary_path):
     assert got.num_rows == 0
 
 
-def test_trust_schema_validates_only_the_first_batch(
-    binary_path, fixture_dir, monkeypatch
-):
+def test_trust_schema_validates_only_the_first_batch(binary_path, fixture_dir, monkeypatch):
     frames = _load_table(fixture_dir / "frames_CAN1.arrows")
     mid = max(frames.num_rows // 2, 1)
     first = pa.RecordBatch.from_arrays(
-        [
-            frames.column(name).slice(0, mid).combine_chunks()
-            for name in frames.schema.names
-        ],
+        [frames.column(name).slice(0, mid).combine_chunks() for name in frames.schema.names],
         schema=frames.schema,
     )
     second_raw = pa.RecordBatch.from_arrays(
-        [
-            frames.column(name).slice(mid).combine_chunks()
-            for name in frames.schema.names
-        ],
+        [frames.column(name).slice(mid).combine_chunks() for name in frames.schema.names],
         schema=frames.schema,
     )
     second = _project_frame_batch(second_raw)

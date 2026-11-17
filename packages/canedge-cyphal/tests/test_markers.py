@@ -1,8 +1,6 @@
 import socket
 from pathlib import Path
 
-import pytest
-
 from canedge_cyphal.markers import write_error_marker
 
 

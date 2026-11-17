@@ -138,9 +138,9 @@ Transfers are written with `channel` set to the bus id. With the default map tha
 
 The new file is written under a temporary name in the transfer session directory. On success the previous transfer parquets are removed, the new file is renamed into place, its modification time is set to the newest frame-file time observed at the start of the scan, and `reassemble.error` is removed. A frame that arrives during the run stays newer than the published file, so the next run picks the session up again. Reprocessing always covers the whole session.
 
-Worker processes each take one session and their own temp DuckDB file.
+Sessions run one after another in the parent process. Each session gets its own temp DuckDB file.
 
-A caught failure (non-zero `cyphal-reassemble` exit, or an exception in the worker) writes `reassemble.error` in the transfer session directory, discards the temporary transfer file, and leaves any previous transfer parquet in place. The next run skips that session until a frame parquet is newer than the marker. A killed process does not write a marker. The next run deletes a leftover temporary transfer file and applies the freshness rule above.
+A caught failure (non-zero `cyphal-reassemble` exit, or an exception during reassembly) writes `reassemble.error` in the transfer session directory, discards the temporary transfer file, and leaves any previous transfer parquet in place. The next run skips that session until a frame parquet is newer than the marker. A killed process does not write a marker. The next run deletes a leftover temporary transfer file and applies the freshness rule above.
 
 ### Error marker contents
 
@@ -159,7 +159,7 @@ Both marker files are plain text and include:
 
 `canedge-cyphal convert` reads an MF4 tree and writes the frame hive.
 
-`canedge-cyphal reassemble` reads the frame hive and writes the transfer hive. Flags follow `scripts/reassemble_sessions.py`: frames directory, transfers directory, batch size, DuckDB temp directory, DuckDB memory limit, `--force`, `--workers`, `--limit`, repeatable `--logger` and `--session`, plus `--channel-map` pointing at a JSON file of the dict-of-lists shape above.
+`canedge-cyphal reassemble` reads the frame hive and writes the transfer hive. Flags follow `scripts/reassemble_sessions.py`: frames directory, transfers directory, batch size, DuckDB temp directory, DuckDB memory limit, `--force`, `--limit`, repeatable `--logger` and `--session`, plus `--channel-map` pointing at a JSON file of the dict-of-lists shape above.
 
 ### Tests
 

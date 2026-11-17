@@ -24,7 +24,7 @@ def write_error_marker(
 ) -> None:
     """Write a plain-text error marker. A later successful run deletes it."""
     lines = [
-        f"time: {datetime.now(timezone.utc).isoformat()}",
+        f"time: {datetime.now(timezone.utc).isoformat()}",  # noqa: UP017
         f"hostname: {socket.gethostname()}",
         f"os: {platform.platform()}",
         f"canedge-cyphal: {_version('canedge-cyphal')}",

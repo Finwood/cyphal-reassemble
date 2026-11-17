@@ -1,5 +1,4 @@
 import pytest
-
 from canedge_cyphal.reassemble import (
     ChannelMapError,
     assign_channel,

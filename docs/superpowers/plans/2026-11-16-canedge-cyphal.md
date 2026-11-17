@@ -1195,11 +1195,11 @@ EOF
 
 `convert` arguments: `--mf4-dir`, `--frames-dir` (both required paths). Exit status is 1 when `convert_tree` returns a positive failure count, else 0.
 
-`reassemble` arguments: `--frames-dir`, `--transfers-dir`, `--batch-size` default `65536`, `--db-dir` default `/var/tmp`, `--memory-limit` default `512MB`, `--force`, `--workers` default `1`, `--limit` default unset, repeatable `--logger`, repeatable `--session` (int), `--channel-map` optional JSON file.
+`reassemble` arguments: `--frames-dir`, `--transfers-dir`, `--batch-size` default `65536`, `--db-dir` default `/var/tmp`, `--memory-limit` default `512MB`, `--force`, `--limit` default unset, repeatable `--logger`, repeatable `--session` (int), `--channel-map` optional JSON file.
 
-`reassemble` loads the JSON object and passes it to `compile_channel_map` before any scan. `ChannelMapError` prints the message to stderr and returns 2. For each discovered session, after logger/session filters and `--limit`, call `cleanup_partial_transfers` on the transfer directory, then skip when `session_is_due` is false. Run due sessions in a `ProcessPoolExecutor` when `--workers > 1`, otherwise in the parent process. A worker that raises is a failed session: print the exception and continue. Return 1 if any session failed, else 0. Sort due sessions by total `*.parquet` size descending before `--limit`, matching `scripts/reassemble_sessions.py`.
+`reassemble` loads the JSON object and passes it to `compile_channel_map` before any scan. `ChannelMapError` prints the message to stderr and returns 2. For each discovered session, after logger/session filters and `--limit`, call `cleanup_partial_transfers` on the transfer directory, then skip when `session_is_due` is false. Run due sessions one after another in the parent process. A session that raises is a failed session: print the exception and continue. Return 1 if any session failed, else 0. Sort due sessions by total `*.parquet` size descending before `--limit`, matching `scripts/reassemble_sessions.py`.
 
-The worker function must be a module-level function so it can be pickled. It calls `publish_session`. Because `publish_session` writes `reassemble.error` itself, the parent does not write a second marker when the worker raises. A worker killed by the operating system never writes a marker; the parent's `BrokenProcessPool` or the missing result counts as a failure for the exit code and does not create `reassemble.error`.
+`publish_session` writes `reassemble.error` itself, so the caller does not write a second marker when a session raises. A killed process never writes a marker.
 
 - [ ] **Step 1: Write the failing CLI tests**
 
