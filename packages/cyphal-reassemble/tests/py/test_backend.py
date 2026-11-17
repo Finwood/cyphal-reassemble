@@ -26,8 +26,8 @@ def test_resolve_binary_uses_bundled_slot(monkeypatch):
 
 def test_resolve_binary_repo_build_fallback(monkeypatch):
     monkeypatch.delenv("CYPHAL_REASSEMBLE_BIN", raising=False)
-    repo_root = Path(__file__).resolve().parents[1]
-    expected = repo_root / "build" / "cyphal-reassemble"
+    package_root = Path(__file__).resolve().parents[2]
+    expected = package_root / "build" / "cyphal-reassemble"
     resolved = resolve_binary()
     if resolved.parent.name == "_bin":
         assert resolved.is_file()

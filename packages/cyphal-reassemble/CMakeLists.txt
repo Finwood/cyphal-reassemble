@@ -36,15 +36,15 @@ FetchContent_MakeAvailable(googletest)
 
 enable_testing()
 add_executable(unit_tests
-    test/test_smoke.cpp
-    test/test_can_id.cpp
-    test/test_reassembler.cpp
-    test/test_arrow_io.cpp)
+    tests/cpp/test_smoke.cpp
+    tests/cpp/test_can_id.cpp
+    tests/cpp/test_reassembler.cpp
+    tests/cpp/test_arrow_io.cpp)
 target_link_libraries(unit_tests PRIVATE reassemble_core GTest::gtest_main)
 include(GoogleTest)
 gtest_discover_tests(unit_tests)
 
-add_executable(golden_tests test/test_golden.cpp)
+add_executable(golden_tests tests/cpp/test_golden.cpp)
 target_link_libraries(golden_tests PRIVATE reassemble_core GTest::gtest_main)
 target_compile_definitions(golden_tests PRIVATE
     FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/data")

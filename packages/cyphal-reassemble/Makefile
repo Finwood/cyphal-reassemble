@@ -27,7 +27,7 @@ test-golden: build
 	ctest --test-dir $(BUILD_DIR) --output-on-failure -R Golden
 
 python-test:
-	uv run pytest python_tests/ -v
+	uv run --package cyphal-reassemble pytest
 
 wheel-bundle:
 	./scripts/prepare_wheel_bundle.sh
@@ -36,7 +36,7 @@ wheel-build:
 	./scripts/build_wheel.sh
 
 wheel-test: wheel-bundle
-	uv run pytest python_tests/ -v
+	uv run --package cyphal-reassemble pytest
 
 reconfigure:
 	rm -f $(BUILD_DIR)/CMakeCache.txt
