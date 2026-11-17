@@ -38,7 +38,8 @@ jobs:
       - name: Python tests and checks
         run: |
           uv sync --all-packages
-          uv run --package cyphal-reassemble pytest -v
+          uv run --package cyphal-reassemble pytest packages/cyphal-reassemble/tests/py -v
+          uv run --package canedge-cyphal pytest packages/canedge-cyphal/tests -v
           uv run prek run --all-files
 
       # The manylinux wheel is built in wheels.yml. auditwheel cannot repair a
