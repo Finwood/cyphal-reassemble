@@ -1387,10 +1387,14 @@ PIPELINE_ROOT = Path(__file__).resolve().parents[1]  # adjust if needed
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", required=True, type=Path)
-    ap.add_argument("--frames-hive", type=Path,
-                    default=Path("test/data/frames"))
-    ap.add_argument("--transfers-parquet", type=Path,
-                    default=Path("test/data/transfers/logger=3544BCD3/session=00000509/transfers.parquet"))
+    ap.add_argument("--frames-hive", type=Path, default=Path("test/data/frames"))
+    ap.add_argument(
+        "--transfers-parquet",
+        type=Path,
+        default=Path(
+            "test/data/transfers/logger=3544BCD3/session=00000509/transfers.parquet"
+        ),
+    )
     args = ap.parse_args()
     args.out.mkdir(parents=True, exist_ok=True)
 
@@ -1399,8 +1403,9 @@ def main() -> None:
     channels = sorted(set(transfers.column("channel").to_pylist()))
 
     with db.connection() as conn:
-        reader = db.get_cyphal_frame_batches(conn, SAMPLE_LOGGER, SAMPLE_SESSION,
-                                             hive=args.frames_hive)
+        reader = db.get_cyphal_frame_batches(
+            conn, SAMPLE_LOGGER, SAMPLE_SESSION, hive=args.frames_hive
+        )
         frames = reader.read_all()
 
     for ch in channels:
@@ -1421,7 +1426,9 @@ def main() -> None:
             for b in ch_tr.to_batches():
                 w.write_batch(b)
 
-        print(f"{ch}: {ch_frames.num_rows} frames -> {ch_tr.num_rows} expected transfers")
+        print(
+            f"{ch}: {ch_frames.num_rows} frames -> {ch_tr.num_rows} expected transfers"
+        )
 
 
 if __name__ == "__main__":

@@ -74,8 +74,9 @@ goal — rejected.
 ### Module: `cyphal_reassemble`
 
 ```python
-TRANSFER_SCHEMA: pa.Schema          # 9 columns, no `channel`
+TRANSFER_SCHEMA: pa.Schema  # 9 columns, no `channel`
 FRAME_INPUT_COLUMNS: tuple[str, ...]  # ("timestamp", "id", "data")
+
 
 def reassemble(frames: pa.Table) -> pa.Table: ...
 def reassemble_batches(
@@ -83,7 +84,7 @@ def reassemble_batches(
     *,
     schema: pa.Schema | None = None,
 ) -> Iterator[pa.RecordBatch]: ...
-def resolve_binary() -> Path: ...    # for diagnostics; raises if not found
+def resolve_binary() -> Path: ...  # for diagnostics; raises if not found
 ```
 
 Optional later (not phase 1): `Reassembler` iterator class mirroring downstream patterns.

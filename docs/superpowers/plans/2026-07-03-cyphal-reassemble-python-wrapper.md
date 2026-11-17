@@ -158,7 +158,11 @@ Create `python_tests/test_schema.py`:
 import pyarrow as pa
 import pytest
 
-from cyphal_reassemble.schema import FRAME_INPUT_COLUMNS, TRANSFER_SCHEMA, validate_frame_schema
+from cyphal_reassemble.schema import (
+    FRAME_INPUT_COLUMNS,
+    TRANSFER_SCHEMA,
+    validate_frame_schema,
+)
 
 
 def test_transfer_schema_fields():
@@ -517,7 +521,11 @@ from typing import Iterable, Iterator
 import pyarrow as pa
 
 from cyphal_reassemble._backend import run_reassemble_ipc_stream
-from cyphal_reassemble.schema import FRAME_INPUT_COLUMNS, TRANSFER_SCHEMA, validate_frame_schema
+from cyphal_reassemble.schema import (
+    FRAME_INPUT_COLUMNS,
+    TRANSFER_SCHEMA,
+    validate_frame_schema,
+)
 
 
 def _project_frame_batch(batch: pa.RecordBatch) -> pa.RecordBatch:

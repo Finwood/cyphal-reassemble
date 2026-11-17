@@ -7,8 +7,8 @@ wheels/
 *.egg-info
 
 # Platform wheel build artifacts
-py/cyphal_reassemble/_bin/*
-!py/cyphal_reassemble/_bin/.gitkeep
+packages/cyphal-reassemble/py/cyphal_reassemble/_bin/*
+!packages/cyphal-reassemble/py/cyphal_reassemble/_bin/.gitkeep
 wheelhouse/
 
 # Virtual environments
