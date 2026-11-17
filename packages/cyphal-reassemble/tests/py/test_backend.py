@@ -51,7 +51,7 @@ def test_reassemble_session_empty_stream(binary_path):
 
 
 def test_reassemble_session_streams_transfers(binary_path, fixture_dir):
-    import pyarrow.ipc as ipc
+    from pyarrow import ipc
 
     with (fixture_dir / "frames_CAN1.arrows").open("rb") as f:
         frames = ipc.open_stream(f).read_all()

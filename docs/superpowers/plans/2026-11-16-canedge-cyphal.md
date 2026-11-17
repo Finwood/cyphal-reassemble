@@ -304,7 +304,11 @@ EOF
 ```python
 import pytest
 
-from canedge_cyphal.reassemble import ChannelMapError, assign_channel, compile_channel_map
+from canedge_cyphal.reassemble import (
+    ChannelMapError,
+    assign_channel,
+    compile_channel_map,
+)
 
 
 def test_no_map_omits_rti():
@@ -367,7 +371,9 @@ def compile_channel_map(raw: Mapping[str, Sequence[str]] | None) -> CompiledMap:
     assignment: dict[str, tuple[str, int]] = {}
     for bus, channels in raw.items():
         if len(channels) > 256:
-            raise ChannelMapError(f"bus {bus!r} has {len(channels)} channels; the maximum is 256")
+            raise ChannelMapError(
+                f"bus {bus!r} has {len(channels)} channels; the maximum is 256"
+            )
         for index, channel in enumerate(channels):
             if channel in assignment:
                 raise ChannelMapError(f"channel {channel!r} is listed more than once")
@@ -422,7 +428,12 @@ EOF
 import os
 from pathlib import Path
 
-from canedge_cyphal.hive import cleanup_partial_transfers, discover_sessions, session_is_due, transfer_dir
+from canedge_cyphal.hive import (
+    cleanup_partial_transfers,
+    discover_sessions,
+    session_is_due,
+    transfer_dir,
+)
 
 
 def _touch(path: Path, mtime: float) -> None:
@@ -436,7 +447,10 @@ def test_discover_sessions_reads_hive_names(tmp_path: Path):
     _touch(frames / "00000001-AAAA.parquet", 10)
     found = discover_sessions(tmp_path / "frames")
     assert [(s.logger, s.session) for s in found] == [("ABCD", 7)]
-    assert transfer_dir(tmp_path / "transfers", found[0]) == tmp_path / "transfers" / "logger=ABCD" / "session=00000007"
+    assert (
+        transfer_dir(tmp_path / "transfers", found[0])
+        == tmp_path / "transfers" / "logger=ABCD" / "session=00000007"
+    )
 
 
 def test_marker_blocks_a_session_until_a_frame_is_newer(tmp_path: Path):
@@ -500,7 +514,9 @@ def discover_sessions(frames_dir: Path) -> list[SessionRef]:
             if not session_dir.is_dir() or not any(session_dir.glob("*.parquet")):
                 continue
             session = int(session_dir.name.split("=", 1)[1])
-            found.append(SessionRef(logger=logger, session=session, frames_path=session_dir))
+            found.append(
+                SessionRef(logger=logger, session=session, frames_path=session_dir)
+            )
     return found
 
 
@@ -596,7 +612,9 @@ def _table() -> pa.Table:
     return pa.table(
         {
             "channel": ["CAN1"],
-            "timestamp": pa.array([1_700_000_000_000_000], type=pa.timestamp("us", tz="UTC")),
+            "timestamp": pa.array(
+                [1_700_000_000_000_000], type=pa.timestamp("us", tz="UTC")
+            ),
             "id": pa.array([1], type=pa.uint32()),
             "dlc": pa.array([1], type=pa.uint8()),
             "ide": [True],
@@ -618,7 +636,9 @@ def test_choose_newest_keeps_the_latest_upload_per_split(tmp_path: Path):
     other = tmp_path / "ABCD" / "00000007" / "00000002-00000010.MF4"
     for path in (older, newer, other):
         _touch(path, 1)
-    chosen = {(item.split, item.path.name) for item in choose_newest([older, newer, other])}
+    chosen = {
+        (item.split, item.path.name) for item in choose_newest([older, newer, other])
+    }
     assert chosen == {(1, "00000001-00000020.MF4"), (2, "00000002-00000010.MF4")}
 
 
@@ -648,7 +668,9 @@ def test_convert_replaces_older_parquet_and_its_marker(tmp_path: Path):
     old_marker = old.with_name(old.name + ".error")
     _touch(old_marker, 6)
     frames = tmp_path / "frames"
-    old_parquet = frames / "logger=ABCD" / "session=00000007" / "00000001-00000010.parquet"
+    old_parquet = (
+        frames / "logger=ABCD" / "session=00000007" / "00000001-00000010.parquet"
+    )
     _touch(old_parquet, 7)
 
     failures = convert_tree(tmp_path / "mf4", frames, read_mf4=lambda _path: _table())
@@ -786,7 +808,10 @@ def _frames(channels: list[str], rtis_expected_later: bool = False) -> pa.Record
     return pa.record_batch(
         {
             "channel": channels,
-            "timestamp": pa.array([1_700_000_000_000_000 + i for i in range(n)], type=pa.timestamp("us", tz="UTC")),
+            "timestamp": pa.array(
+                [1_700_000_000_000_000 + i for i in range(n)],
+                type=pa.timestamp("us", tz="UTC"),
+            ),
             "id": pa.array([1] * n, type=pa.uint32()),
             "data": [b"\x00"] * n,
         }
@@ -794,21 +819,41 @@ def _frames(channels: list[str], rtis_expected_later: bool = False) -> pa.Record
 
 
 def _fake(seen: list[pa.RecordBatch]):
-    def reassemble_batches(batches: Iterable[pa.RecordBatch], *, trust_schema: bool = False) -> Iterator[pa.RecordBatch]:
+    def reassemble_batches(
+        batches: Iterable[pa.RecordBatch], *, trust_schema: bool = False
+    ) -> Iterator[pa.RecordBatch]:
         assert trust_schema is True
         for batch in batches:
             seen.append(batch)
             yield pa.RecordBatch.from_pylist(
-                [{"timestamp": batch.column("timestamp")[0].as_py(), "type": "Message", "id": 1,
-                  "source": 1, "dest": None, "priority": 4, "transfer_id": 1, "payload": b"\x01", "length": 1}],
+                [
+                    {
+                        "timestamp": batch.column("timestamp")[0].as_py(),
+                        "type": "Message",
+                        "id": 1,
+                        "source": 1,
+                        "dest": None,
+                        "priority": 4,
+                        "transfer_id": 1,
+                        "payload": b"\x01",
+                        "length": 1,
+                    }
+                ],
                 schema=TRANSFER_SCHEMA,
             )
+
     return reassemble_batches
 
 
 def test_default_map_omits_rti_and_uses_the_channel_name():
     seen: list[pa.RecordBatch] = []
-    out = list(reassemble_frame_batches([_frames(["CAN1", "CAN2"])], compiled=compile_channel_map(None), reassemble_batches=_fake(seen)))
+    out = list(
+        reassemble_frame_batches(
+            [_frames(["CAN1", "CAN2"])],
+            compiled=compile_channel_map(None),
+            reassemble_batches=_fake(seen),
+        )
+    )
     assert all(batch.schema.get_field_index("rti") == -1 for batch in seen)
     assert {batch.column("channel")[0].as_py() for batch in out} == {"CAN1", "CAN2"}
     assert out[0].schema.equals(OUTPUT_SCHEMA, check_metadata=False)
@@ -837,27 +882,31 @@ def test_two_channels_share_a_bus_and_a_later_channel_opens_another():
         for batch in batches:
             rtis.append(batch.column("rti").to_pylist())
             yield pa.RecordBatch.from_pylist(
-                [{
-                    "timestamp": batch.column("timestamp")[0].as_py(),
-                    "type": "Message",
-                    "id": 1,
-                    "source": 1,
-                    "dest": None,
-                    "priority": 4,
-                    "transfer_id": 1,
-                    "payload": b"\x01",
-                    "length": 1,
-                }],
+                [
+                    {
+                        "timestamp": batch.column("timestamp")[0].as_py(),
+                        "type": "Message",
+                        "id": 1,
+                        "source": 1,
+                        "dest": None,
+                        "priority": 4,
+                        "transfer_id": 1,
+                        "payload": b"\x01",
+                        "length": 1,
+                    }
+                ],
                 schema=TRANSFER_SCHEMA,
             )
         calls.append(rtis)
 
     compiled = compile_channel_map({"flight": ["CAN1", "CAN2"]})
-    list(reassemble_frame_batches(
-        [_frames(["CAN1"]), _frames(["CAN2", "CAN9"])],
-        compiled=compiled,
-        reassemble_batches=reassemble_batches,
-    ))
+    list(
+        reassemble_frame_batches(
+            [_frames(["CAN1"]), _frames(["CAN2", "CAN9"])],
+            compiled=compiled,
+            reassemble_batches=reassemble_batches,
+        )
+    )
     assert sorted(calls) == sorted([[[0], [1]], [[0]]])
 ```
 
@@ -885,17 +934,21 @@ import pyarrow.compute as pc
 import pyarrow.parquet as pq
 
 from cyphal_reassemble import TRANSFER_SCHEMA
-from cyphal_reassemble.reassemble import reassemble_batches as library_reassemble_batches
+from cyphal_reassemble.reassemble import (
+    reassemble_batches as library_reassemble_batches,
+)
 
 from canedge_cyphal.hive import cleanup_partial_transfers
 from canedge_cyphal.markers import write_error_marker
 
 OUTPUT_SCHEMA = pa.schema([pa.field("channel", pa.utf8()), *list(TRANSFER_SCHEMA)])
-_FRAME_SCHEMA = pa.schema([
-    pa.field("timestamp", pa.timestamp("us", tz="UTC")),
-    pa.field("id", pa.uint32()),
-    pa.field("data", pa.binary()),
-])
+_FRAME_SCHEMA = pa.schema(
+    [
+        pa.field("timestamp", pa.timestamp("us", tz="UTC")),
+        pa.field("id", pa.uint32()),
+        pa.field("data", pa.binary()),
+    ]
+)
 
 
 def _project(batch: pa.RecordBatch, rti: int | None) -> pa.RecordBatch:
@@ -903,7 +956,11 @@ def _project(batch: pa.RecordBatch, rti: int | None) -> pa.RecordBatch:
     utc = pa.timestamp("us", tz="UTC")
     if timestamp.type != utc:
         timestamp = pc.cast(timestamp, utc)
-    columns = [timestamp, pc.cast(batch.column("id"), pa.uint32()), batch.column("data")]
+    columns = [
+        timestamp,
+        pc.cast(batch.column("id"), pa.uint32()),
+        batch.column("data"),
+    ]
     names = ["timestamp", "id", "data"]
     if rti is not None:
         columns.append(pa.array([rti] * batch.num_rows, type=pa.uint8()))
@@ -923,7 +980,9 @@ def reassemble_frame_batches(
     batches: Iterable[pa.RecordBatch],
     *,
     compiled: CompiledMap,
-    reassemble_batches: Callable[..., Iterator[pa.RecordBatch]] = library_reassemble_batches,
+    reassemble_batches: Callable[
+        ..., Iterator[pa.RecordBatch]
+    ] = library_reassemble_batches,
 ) -> Iterator[pa.RecordBatch]:
     queues: dict[str, Queue[pa.RecordBatch | None]] = {}
     threads: list[Thread] = []
@@ -951,7 +1010,9 @@ def reassemble_frame_batches(
         if bus in queues:
             return
         queues[bus] = Queue(maxsize=4)
-        thread = Thread(target=consume, args=(bus,), name=f"canedge-cyphal-{bus}", daemon=True)
+        thread = Thread(
+            target=consume, args=(bus,), name=f"canedge-cyphal-{bus}", daemon=True
+        )
         threads.append(thread)
         thread.start()
 
@@ -959,7 +1020,11 @@ def reassemble_frame_batches(
         for batch in batches:
             if batch.num_rows == 0:
                 continue
-            channels = [value for value in batch.column("channel").unique().to_pylist() if value is not None]
+            channels = [
+                value
+                for value in batch.column("channel").unique().to_pylist()
+                if value is not None
+            ]
             for channel in channels:
                 bus, rti = assign_channel(compiled, str(channel))
                 mask = pc.equal(batch.column("channel"), channel)
@@ -1040,7 +1105,12 @@ def publish_session(
     writer: pq.ParquetWriter | None = None
     try:
         batches = reassemble_frame_batches(
-            iter_session_frames(frames_dir, batch_size=batch_size, db_dir=db_dir, memory_limit=memory_limit),
+            iter_session_frames(
+                frames_dir,
+                batch_size=batch_size,
+                db_dir=db_dir,
+                memory_limit=memory_limit,
+            ),
             compiled=compiled,
         )
         for batch in batches:
@@ -1049,7 +1119,12 @@ def publish_session(
             writer.write_batch(batch)
             rows += batch.num_rows
         if writer is None:
-            pq.write_table(pa.table({name: [] for name in OUTPUT_SCHEMA.names}, schema=OUTPUT_SCHEMA), tmp)
+            pq.write_table(
+                pa.table(
+                    {name: [] for name in OUTPUT_SCHEMA.names}, schema=OUTPUT_SCHEMA
+                ),
+                tmp,
+            )
         else:
             writer.close()
             writer = None
@@ -1136,7 +1211,15 @@ from canedge_cyphal.cli import main
 
 
 def test_convert_exits_zero_when_the_tree_has_no_files(tmp_path: Path):
-    code = main(["convert", "--mf4-dir", str(tmp_path / "mf4"), "--frames-dir", str(tmp_path / "frames")])
+    code = main(
+        [
+            "convert",
+            "--mf4-dir",
+            str(tmp_path / "mf4"),
+            "--frames-dir",
+            str(tmp_path / "frames"),
+        ]
+    )
     assert code == 0
 
 
@@ -1145,12 +1228,17 @@ def test_bad_channel_map_exits_2(tmp_path: Path, capsys):
     frames.mkdir()
     path = tmp_path / "map.json"
     path.write_text(json.dumps({"a": ["CAN1"], "b": ["CAN1"]}))
-    code = main([
-        "reassemble",
-        "--frames-dir", str(frames),
-        "--transfers-dir", str(tmp_path / "transfers"),
-        "--channel-map", str(path),
-    ])
+    code = main(
+        [
+            "reassemble",
+            "--frames-dir",
+            str(frames),
+            "--transfers-dir",
+            str(tmp_path / "transfers"),
+            "--channel-map",
+            str(path),
+        ]
+    )
     assert code == 2
     assert "more than once" in capsys.readouterr().err
 ```

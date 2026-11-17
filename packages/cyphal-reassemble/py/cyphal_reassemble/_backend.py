@@ -4,12 +4,16 @@ import os
 import shutil
 import subprocess
 import threading
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
+from contextlib import suppress
 from pathlib import Path
-from typing import Iterable
+from typing import TYPE_CHECKING
 
 import pyarrow as pa
-import pyarrow.ipc as ipc
+from pyarrow import ipc
+
+if TYPE_CHECKING:
+    from typing import Self
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _BUNDLED = Path(__file__).resolve().parent / "_bin" / "cyphal-reassemble"
@@ -36,8 +40,7 @@ def resolve_binary() -> Path:
         return _BUILD
 
     raise FileNotFoundError(
-        "cyphal-reassemble binary not found. Build with: make\n"
-        "Or set CYPHAL_REASSEMBLE_BIN to the executable path."
+        "cyphal-reassemble binary not found. Build with: make\nOr set CYPHAL_REASSEMBLE_BIN to the executable path."
     )
 
 
@@ -60,7 +63,7 @@ class ReassembleSession:
         self._finished = False
         self._exit_checked = False
 
-    def __enter__(self) -> ReassembleSession:
+    def __enter__(self) -> Self:
         exe = self._binary or resolve_binary()
         self._proc = subprocess.Popen(
             [str(exe)],
@@ -80,7 +83,6 @@ class ReassembleSession:
         # If the caller already failed, still tear down but don't mask that error
         # with a secondary exit-status exception.
         self._ensure_finished(raise_on_error=exc_type is None)
-        return None
 
     def run(self, batches: Iterable[pa.RecordBatch]) -> Iterator[pa.RecordBatch]:
         """Write frame batches concurrently; yield transfer batches as they arrive."""
@@ -106,10 +108,8 @@ class ReassembleSession:
         finally:
             if self._writer_thread is not None:
                 self._writer_thread.join()
-            try:
+            with suppress(OSError, ValueError):
                 self._proc.stdout.close()
-            except Exception:
-                pass
 
         self._ensure_finished(raise_on_error=True)
 
@@ -135,16 +135,14 @@ class ReassembleSession:
                 # only finishes once it sees stdin EOF.
                 if self._proc.stdin is not None and not self._proc.stdin.closed:
                     self._proc.stdin.close()
-        except BaseException as exc:
+        except Exception as exc:  # noqa: BLE001 - surface writer-thread failures on the caller
             self._write_error = exc
             self._kill()
 
     def _kill(self) -> None:
         if self._proc is not None and self._proc.poll() is None:
-            try:
+            with suppress(OSError):
                 self._proc.kill()
-            except Exception:
-                pass
 
     def _ensure_finished(self, *, raise_on_error: bool) -> None:
         if self._proc is None:
@@ -154,18 +152,14 @@ class ReassembleSession:
             self._writer_thread.join()
 
         if self._proc.stdin is not None and not self._proc.stdin.closed:
-            try:
+            with suppress(OSError, ValueError):
                 self._proc.stdin.close()
-            except Exception:
-                pass
 
         if self._proc.stdout is not None and not self._proc.stdout.closed:
-            try:
+            with suppress(OSError, ValueError):
                 # Unblock the child if the caller stopped reading early.
                 self._proc.stdout.read()
                 self._proc.stdout.close()
-            except Exception:
-                pass
 
         if self._stderr_thread is not None:
             self._stderr_thread.join()

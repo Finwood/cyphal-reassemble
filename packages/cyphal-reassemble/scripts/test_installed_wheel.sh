@@ -15,7 +15,7 @@ unset CYPHAL_REASSEMBLE_BIN
 export PATH="/usr/local/bin:/usr/bin:/bin"
 
 "${PYTHON}" -m pip install pytest "pyarrow>=15"
-"${PYTHON}" -m pytest python_tests/ -v
+"${PYTHON}" -m pytest tests/py/ -v
 
 "${PYTHON}" - <<'PY'
 from cyphal_reassemble._backend import resolve_binary

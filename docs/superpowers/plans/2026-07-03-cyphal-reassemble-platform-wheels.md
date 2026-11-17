@@ -238,7 +238,13 @@ Append to `python_tests/test_backend.py`:
 def test_resolve_binary_prefers_bundled_over_repo_build(monkeypatch):
     """When _bin/ is populated (platform wheel), it wins over repo build/."""
     monkeypatch.delenv("CYPHAL_REASSEMBLE_BIN", raising=False)
-    bundled = Path(__file__).resolve().parents[1] / "py" / "cyphal_reassemble" / "_bin" / "cyphal-reassemble"
+    bundled = (
+        Path(__file__).resolve().parents[1]
+        / "py"
+        / "cyphal_reassemble"
+        / "_bin"
+        / "cyphal-reassemble"
+    )
     if not bundled.is_file():
         pytest.skip("bundled binary not staged; run scripts/prepare_wheel_bundle.sh")
     resolved = resolve_binary()
@@ -254,7 +260,13 @@ Append to `python_tests/conftest.py`:
 @pytest.fixture(scope="session")
 def require_bundled_binary() -> Path:
     """Skip unless _bin/cyphal-reassemble exists (wheel install or staged bundle)."""
-    bundled = Path(__file__).resolve().parents[1] / "py" / "cyphal_reassemble" / "_bin" / "cyphal-reassemble"
+    bundled = (
+        Path(__file__).resolve().parents[1]
+        / "py"
+        / "cyphal_reassemble"
+        / "_bin"
+        / "cyphal-reassemble"
+    )
     if not bundled.is_file():
         pytest.skip("bundled binary not present")
     return bundled

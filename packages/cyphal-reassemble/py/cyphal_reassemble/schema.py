@@ -33,13 +33,9 @@ def validate_frame_schema(schema: pa.Schema) -> None:
         actual = schema.field(name)
         if name == "timestamp":
             if not pa.types.is_timestamp(actual.type) or actual.type.unit != "us":
-                raise ValueError(
-                    f"frame input column {name!r}: expected timestamp[us], got {actual.type}"
-                )
+                raise ValueError(f"frame input column {name!r}: expected timestamp[us], got {actual.type}")
         elif actual.type != expected_type:
-            raise ValueError(
-                f"frame input column {name!r}: expected {expected_type}, got {actual.type}"
-            )
+            raise ValueError(f"frame input column {name!r}: expected {expected_type}, got {actual.type}")
     rti_idx = schema.get_field_index("rti")
     if rti_idx != -1 and schema.field("rti").type != pa.uint8():
         raise ValueError("frame input column 'rti' must be uint8")

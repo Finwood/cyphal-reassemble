@@ -2,8 +2,8 @@ from collections import Counter
 from pathlib import Path
 
 import pyarrow as pa
-import pyarrow.ipc as ipc
 from cyphal_reassemble.reassemble import reassemble, reassemble_batches
+from pyarrow import ipc
 
 
 def _load_table(path: Path) -> pa.Table:
