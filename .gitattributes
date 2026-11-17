@@ -1,1 +1,4 @@
+packages/canedge-cyphal/tests/data/**/*.MF4 filter=lfs diff=lfs merge=lfs -text
+packages/canedge-cyphal/tests/data/**/*.parquet filter=lfs diff=lfs merge=lfs -text
+packages/canedge-cyphal/tests/data/**/*.MFC filter=lfs diff=lfs merge=lfs -text
 *.arrows filter=lfs diff=lfs merge=lfs -text
