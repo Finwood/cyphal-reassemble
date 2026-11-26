@@ -29,6 +29,7 @@ def _parser() -> argparse.ArgumentParser:
     convert = sub.add_parser("convert")
     convert.add_argument("--mf4-dir", type=Path, required=True)
     convert.add_argument("--frames-dir", type=Path, required=True)
+    convert.add_argument("--workers", type=int, default=None)
 
     reassemble = sub.add_parser("reassemble")
     reassemble.add_argument("--frames-dir", type=Path, required=True)
@@ -147,6 +148,6 @@ def _cmd_reassemble(args: argparse.Namespace) -> int:
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     if args.command == "convert":
-        failures = convert_tree(args.mf4_dir, args.frames_dir)
+        failures = convert_tree(args.mf4_dir, args.frames_dir, workers=args.workers)
         return 1 if failures else 0
     return _cmd_reassemble(args)
