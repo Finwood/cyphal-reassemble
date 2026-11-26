@@ -1,6 +1,6 @@
 # Compiled CANedge MF4 reader — design
 
-**Status:** Pending review (2026-11-27)
+**Status:** Approved (2026-11-27)
 **Package:** `canedge-cyphal`
 **Depends on:** `docs/superpowers/specs/2026-11-16-cyphal-workspace-design.md` (hive, markers, and `convert` selection unchanged)
 
