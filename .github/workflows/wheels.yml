@@ -17,6 +17,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
+          lfs: true
 
       # Hatchling emits py3-none-any, then auditwheel retags to manylinux. cibuildwheel's
       # default PEP 517 build rejects none-any wheels before repair, so we run the same
@@ -25,7 +26,7 @@ jobs:
         run: |
           docker run --rm \
             -v "$PWD:/project" \
-            -w /project \
+            -w /project/packages/cyphal-reassemble \
             quay.io/pypa/manylinux_2_28_x86_64 \
             bash -c '
               set -euo pipefail
@@ -43,13 +44,13 @@ jobs:
                 exit 1
               fi
               python -m pip install "${wheels[0]}"
-              PYTHON=python bash scripts/test_installed_wheel.sh /project
+              PYTHON=python bash scripts/test_installed_wheel.sh /project/packages/cyphal-reassemble
             '
 
       - uses: actions/upload-artifact@v4
         with:
           name: cyphal-reassemble-wheels
-          path: wheelhouse/*.whl
+          path: packages/cyphal-reassemble/wheelhouse/*.whl
           if-no-files-found: error
 
   publish:

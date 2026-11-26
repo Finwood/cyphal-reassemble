@@ -357,7 +357,9 @@ EOF
 Append to `tests/py/test_reassemble.py`. Build the two batches from column slices so the test does not depend on `Table.to_batches()` returning more than one batch:
 
 ```python
-def test_trust_schema_validates_only_the_first_batch(binary_path, fixture_dir, monkeypatch):
+def test_trust_schema_validates_only_the_first_batch(
+    binary_path, fixture_dir, monkeypatch
+):
     frames = _load_table(fixture_dir / "frames_CAN1.arrows")
     mid = max(frames.num_rows // 2, 1)
     first = pa.RecordBatch.from_pydict(

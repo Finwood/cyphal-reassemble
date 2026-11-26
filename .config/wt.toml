@@ -1,0 +1,4 @@
+[post-start]
+submodules = "git submodule update --init --recursive"
+copy = "wt step copy-ignored --require-include"
+venv = "uv sync --all-packages"

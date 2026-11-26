@@ -12,6 +12,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
+          lfs: true
 
       - name: Install Arrow C++ and build tools
         run: |
@@ -23,23 +24,24 @@ jobs:
           sudo apt-get install -y -V libarrow-dev make
 
       - name: Build
+        working-directory: packages/cyphal-reassemble
         run: make
 
       - name: Test
+        working-directory: packages/cyphal-reassemble
         run: make test
 
       - uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true
 
-      - name: Python tests
+      - name: Python tests and checks
         run: |
-          uv sync
-          uv run pytest python_tests/ -v
+          uv sync --all-packages
+          uv run --package cyphal-reassemble pytest packages/cyphal-reassemble/tests/py -v
+          uv run --package canedge-cyphal pytest packages/canedge-cyphal/tests -v
+          uv run prek run --all-files
 
-      - name: Smoke test platform wheel build
-        run: |
-          sudo apt-get install -y patchelf
-          uv pip install auditwheel
-          uv run bash scripts/build_wheel.sh
-          unzip -l dist/cyphal_reassemble-*-manylinux_*.whl | grep '_bin/cyphal-reassemble'
+      # The manylinux wheel is built in wheels.yml. auditwheel cannot repair a
+      # binary compiled on ubuntu-latest: the host glibc and the x86_64_v3 ISA
+      # are newer than the manylinux baseline.

@@ -1,0 +1,2 @@
+# Gitignored paths to seed into new worktrees (see wt step copy-ignored).
+packages/cyphal-reassemble/py/cyphal_reassemble/_bin/
