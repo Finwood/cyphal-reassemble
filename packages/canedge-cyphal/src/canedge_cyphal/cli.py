@@ -29,7 +29,12 @@ def _parser() -> argparse.ArgumentParser:
     convert = sub.add_parser("convert")
     convert.add_argument("--mf4-dir", type=Path, required=True)
     convert.add_argument("--frames-dir", type=Path, required=True)
-    convert.add_argument("--workers", type=int, default=None)
+    convert.add_argument(
+        "--workers",
+        type=int,
+        default=None,
+        help="max parallel conversion processes (default: Python's ProcessPoolExecutor default)",
+    )
 
     reassemble = sub.add_parser("reassemble")
     reassemble.add_argument("--frames-dir", type=Path, required=True)
@@ -148,6 +153,9 @@ def _cmd_reassemble(args: argparse.Namespace) -> int:
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     if args.command == "convert":
+        if args.workers is not None and args.workers <= 0:
+            print("--workers must be a positive integer", file=sys.stderr)
+            return 2
         failures = convert_tree(args.mf4_dir, args.frames_dir, workers=args.workers)
         return 1 if failures else 0
     return _cmd_reassemble(args)

@@ -44,7 +44,40 @@ def test_convert_workers_default_is_none():
     assert args.workers is None
 
 
-def test_convert_workers_flag_is_forwarded(tmp_path: Path):
+def test_convert_workers_forwarded_to_convert_tree(tmp_path: Path, monkeypatch):
+    seen: list[int | None] = []
+
+    def fake_convert_tree(
+        mf4_dir: Path, frames_dir: Path, workers: int | None = None
+    ) -> int:
+        seen.append(workers)
+        return 0
+
+    monkeypatch.setattr("canedge_cyphal.cli.convert_tree", fake_convert_tree)
+    mf4 = str(tmp_path / "mf4")
+    frames = str(tmp_path / "frames")
+
+    assert main(["convert", "--mf4-dir", mf4, "--frames-dir", frames]) == 0
+    assert seen[-1] is None
+
+    assert (
+        main(
+            [
+                "convert",
+                "--mf4-dir",
+                mf4,
+                "--frames-dir",
+                frames,
+                "--workers",
+                "1",
+            ]
+        )
+        == 0
+    )
+    assert seen[-1] == 1
+
+
+def test_convert_workers_zero_exits_2(tmp_path: Path, capsys):
     code = main(
         [
             "convert",
@@ -53,7 +86,8 @@ def test_convert_workers_flag_is_forwarded(tmp_path: Path):
             "--frames-dir",
             str(tmp_path / "frames"),
             "--workers",
-            "1",
+            "0",
         ]
     )
-    assert code == 0
+    assert code == 2
+    assert "positive integer" in capsys.readouterr().err
