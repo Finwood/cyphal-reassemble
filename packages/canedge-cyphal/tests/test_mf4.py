@@ -7,6 +7,7 @@ from canedge_cyphal.mf4 import (
     CANedgeFile,
     choose_newest,
     convert_one,
+    convert_tree,
     should_convert,
 )
 
@@ -165,3 +166,7 @@ def test_failed_newest_upload_keeps_older_parquet(tmp_path: Path):
     assert marker.is_file()
     assert should_convert(newer, dest) is False
     assert older_parquet.exists()
+
+
+def test_convert_tree_with_workers_returns_zero_on_empty_tree(tmp_path: Path):
+    assert convert_tree(tmp_path / "mf4", tmp_path / "frames", workers=1) == 0

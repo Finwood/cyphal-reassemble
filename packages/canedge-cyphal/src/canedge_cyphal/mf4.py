@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 from collections.abc import Callable, Iterable
+from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 from typing import BinaryIO
@@ -266,9 +267,8 @@ def convert_tree(
     mf4_dir: Path,
     frames_dir: Path,
     *,
-    read_mf4: Callable[[Path], pa.Table] | None = None,
+    workers: int | None = None,
 ) -> int:
-    reader = read_mf4 if read_mf4 is not None else read_mf4_file
     sources = list(mf4_dir.glob("*/*/*-*.MF[4C]"))
     scanned: dict[tuple[str, int, int, str], CANedgeFile] = {}
     for path in sources:
@@ -278,7 +278,9 @@ def convert_tree(
         scanned[(parsed.logger, parsed.session, parsed.split, parsed.path.stem)] = (
             parsed
         )
-    failures = 0
+    jobs: list[
+        tuple[CANedgeFile, Path, Path, dict[tuple[str, int, int, str], CANedgeFile]]
+    ] = []
     for chosen in choose_newest(sources):
         dest = (
             frames_dir
@@ -292,11 +294,13 @@ def convert_tree(
                     chosen=chosen, dest=dest, mf4_dir=mf4_dir, scanned=scanned
                 )
             continue
-        failures += convert_one(
-            chosen,
-            dest,
-            mf4_dir,
-            scanned,
-            read_mf4=reader if read_mf4 is not None else None,
-        )
+        jobs.append((chosen, dest, mf4_dir, scanned))
+    failures = 0
+    with ProcessPoolExecutor(max_workers=workers) as executor:
+        futures = [
+            executor.submit(convert_one, chosen, dest, mf4_dir, scanned)
+            for chosen, dest, mf4_dir, scanned in jobs
+        ]
+        for future in futures:
+            failures += future.result()
     return failures
