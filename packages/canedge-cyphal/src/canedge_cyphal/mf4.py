@@ -234,6 +234,34 @@ def _drop_stale_uploads(
             ).unlink(missing_ok=True)
 
 
+def convert_one(
+    chosen: CANedgeFile,
+    dest: Path,
+    mf4_dir: Path,
+    scanned: dict[tuple[str, int, int, str], CANedgeFile],
+    *,
+    read_mf4: Callable[[Path], pa.Table] | None = None,
+) -> int:
+    reader = read_mf4 if read_mf4 is not None else read_mf4_file
+    try:
+        table = reader(chosen.path)
+    except Exception as exc:  # noqa: BLE001
+        write_error_marker(
+            _error_marker(chosen.path),
+            stage="mf4",
+            subject=chosen.path,
+            error=exc,
+        )
+        return 1
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    tmp = dest.with_suffix(".parquet.tmp")
+    pq.write_table(table, tmp)
+    os.replace(tmp, dest)
+    _error_marker(chosen.path).unlink(missing_ok=True)
+    _drop_stale_uploads(chosen=chosen, dest=dest, mf4_dir=mf4_dir, scanned=scanned)
+    return 0
+
+
 def convert_tree(
     mf4_dir: Path,
     frames_dir: Path,
@@ -264,21 +292,11 @@ def convert_tree(
                     chosen=chosen, dest=dest, mf4_dir=mf4_dir, scanned=scanned
                 )
             continue
-        try:
-            table = reader(chosen.path)
-        except Exception as exc:  # noqa: BLE001
-            write_error_marker(
-                _error_marker(chosen.path),
-                stage="mf4",
-                subject=chosen.path,
-                error=exc,
-            )
-            failures += 1
-            continue
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        tmp = dest.with_suffix(".parquet.tmp")
-        pq.write_table(table, tmp)
-        os.replace(tmp, dest)
-        _error_marker(chosen.path).unlink(missing_ok=True)
-        _drop_stale_uploads(chosen=chosen, dest=dest, mf4_dir=mf4_dir, scanned=scanned)
+        failures += convert_one(
+            chosen,
+            dest,
+            mf4_dir,
+            scanned,
+            read_mf4=reader if read_mf4 is not None else None,
+        )
     return failures

@@ -2,7 +2,13 @@ import os
 from pathlib import Path
 
 import pyarrow as pa
-from canedge_cyphal.mf4 import FRAME_SCHEMA, choose_newest, convert_tree, should_convert
+from canedge_cyphal.mf4 import (
+    FRAME_SCHEMA,
+    CANedgeFile,
+    choose_newest,
+    convert_one,
+    should_convert,
+)
 
 
 def _touch(path: Path, mtime: float, payload: bytes = b"x") -> None:
@@ -76,28 +82,54 @@ def test_convert_replaces_older_parquet_and_its_marker(tmp_path: Path):
     )
     _touch(old_parquet, 7)
 
-    failures = convert_tree(tmp_path / "mf4", frames, read_mf4=lambda _path: _table())
+    chosen = CANedgeFile.from_path(new)
+    dest = frames / "logger=ABCD" / "session=00000007" / f"{chosen.path.stem}.parquet"
+    scanned = {
+        (
+            CANedgeFile.from_path(p).logger,
+            CANedgeFile.from_path(p).session,
+            CANedgeFile.from_path(p).split,
+            CANedgeFile.from_path(p).path.stem,
+        ): CANedgeFile.from_path(p)
+        for p in (old, new)
+    }
+
+    failures = convert_one(
+        chosen,
+        dest,
+        tmp_path / "mf4",
+        scanned,
+        read_mf4=lambda _path: _table(),
+    )
 
     assert failures == 0
     assert not old_parquet.exists()
     assert not old_marker.exists()
-    written = frames / "logger=ABCD" / "session=00000007" / "00000001-00000020.parquet"
-    assert written.is_file()
+    assert dest.is_file()
     assert not new.with_name(new.name + ".error").exists()
 
 
 def test_unreadable_mf4_writes_a_marker_and_is_skipped_next_time(tmp_path: Path):
     source = tmp_path / "mf4" / "ABCD" / "00000007" / "00000001-00000020.MF4"
     _touch(source, 10)
+    chosen = CANedgeFile.from_path(source)
+    dest = (
+        tmp_path
+        / "frames"
+        / "logger=ABCD"
+        / "session=00000007"
+        / f"{chosen.path.stem}.parquet"
+    )
+    scanned = {(chosen.logger, chosen.session, chosen.split, chosen.path.stem): chosen}
 
     def boom(_path: Path) -> pa.Table:
         raise RuntimeError("truncated")
 
-    assert convert_tree(tmp_path / "mf4", tmp_path / "frames", read_mf4=boom) == 1
+    assert convert_one(chosen, dest, tmp_path / "mf4", scanned, read_mf4=boom) == 1
     marker = source.with_name(source.name + ".error")
     assert "stage: mf4" in marker.read_text()
     assert "hostname: " in marker.read_text()
-    assert convert_tree(tmp_path / "mf4", tmp_path / "frames", read_mf4=boom) == 0
+    assert should_convert(source, dest) is False
 
 
 def test_failed_newest_upload_keeps_older_parquet(tmp_path: Path):
@@ -112,12 +144,24 @@ def test_failed_newest_upload_keeps_older_parquet(tmp_path: Path):
     )
     _touch(older_parquet, 7)
 
+    chosen = CANedgeFile.from_path(newer)
+    dest = frames / "logger=ABCD" / "session=00000007" / f"{chosen.path.stem}.parquet"
+    scanned = {
+        (
+            CANedgeFile.from_path(p).logger,
+            CANedgeFile.from_path(p).session,
+            CANedgeFile.from_path(p).split,
+            CANedgeFile.from_path(p).path.stem,
+        ): CANedgeFile.from_path(p)
+        for p in (older, newer)
+    }
+
     def boom(_path: Path) -> pa.Table:
         raise RuntimeError("truncated")
 
-    assert convert_tree(tmp_path / "mf4", frames, read_mf4=boom) == 1
+    assert convert_one(chosen, dest, tmp_path / "mf4", scanned, read_mf4=boom) == 1
     assert older_parquet.exists()
     marker = newer.with_name(newer.name + ".error")
     assert marker.is_file()
-    assert convert_tree(tmp_path / "mf4", frames, read_mf4=boom) == 0
+    assert should_convert(newer, dest) is False
     assert older_parquet.exists()
