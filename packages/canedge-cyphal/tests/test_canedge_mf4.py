@@ -3,7 +3,6 @@ from pathlib import Path
 
 import mdf_iter
 import pyarrow as pa
-import pyarrow.compute as pc
 import pytest
 from canedge_cyphal.mf4 import (
     FRAME_SCHEMA,
@@ -215,8 +214,8 @@ def test_canedge_mf4_is_at_least_twice_as_fast(tmp_path: Path):
         ("id", "ascending"),
         ("data", "ascending"),
     ]
-    old_sorted = old.take(pc.sort_indices(old, sort_keys=sort_keys))
-    new_sorted = new.take(pc.sort_indices(new, sort_keys=sort_keys))
+    old_sorted = old.sort_by(sort_keys)
+    new_sorted = new.sort_by(sort_keys)
     for name in old_sorted.column_names:
         if name == "timestamp":
             continue
@@ -224,9 +223,6 @@ def test_canedge_mf4_is_at_least_twice_as_fast(tmp_path: Path):
 
     # raw_us is the generation index and every timestamp is distinct, so
     # timestamp order is raw_us order.
-    expected = pc.add(
-        pa.scalar(1_700_000_000_000_000, type=pa.int64()),
-        pa.array(range(new_sorted.num_rows), type=pa.int64()),
-    )
-    actual = pc.cast(new_sorted.column("timestamp"), pa.int64())
-    assert pc.all(pc.equal(actual, expected)).as_py()
+    actual = new_sorted.column("timestamp").cast(pa.int64()).to_pylist()
+    expected = [1_700_000_000_000_000 + index for index in range(new_sorted.num_rows)]
+    assert actual == expected

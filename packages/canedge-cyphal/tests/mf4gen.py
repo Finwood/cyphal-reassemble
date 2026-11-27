@@ -111,7 +111,12 @@ def _classic_record(record_id: int, rec: dict) -> bytes:
     body = bytearray(8)
     body[: min(8, len(payload))] = payload[:8]
     flags = ((can_id >> 8) & 0x7) | (dlc << 4)
-    return bytes([record_id]) + _u48(int(rec["raw_us"])) + bytes([can_id & 0xFF, flags]) + bytes(body)
+    return (
+        bytes([record_id])
+        + _u48(int(rec["raw_us"]))
+        + bytes([can_id & 0xFF, flags])
+        + bytes(body)
+    )
 
 
 def _fd_record(record_id: int, rec: dict, offset: int) -> bytes:
@@ -134,7 +139,11 @@ def _vlsd_record(record_id: int, payload: bytes) -> bytes:
 
 
 def _error_record(record_id: int, rec: dict) -> bytes:
-    return bytes([record_id]) + _u48(int(rec["raw_us"])) + bytes([int(rec["error_type"]) & 0x3F])
+    return (
+        bytes([record_id])
+        + _u48(int(rec["raw_us"]))
+        + bytes([int(rec["error_type"]) & 0x3F])
+    )
 
 
 def _remote_record(record_id: int) -> bytes:

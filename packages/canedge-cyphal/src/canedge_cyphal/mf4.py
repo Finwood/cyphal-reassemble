@@ -6,12 +6,16 @@ from collections.abc import Callable, Iterable
 from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
-from typing import BinaryIO
+from typing import TYPE_CHECKING, BinaryIO
 
 import pyarrow as pa
 import pyarrow.parquet as pq
 
 from canedge_cyphal.markers import write_error_marker
+
+if TYPE_CHECKING:
+    import mdf_iter
+    import pandas as pd
 
 FRAME_SCHEMA = pa.schema(
     [
