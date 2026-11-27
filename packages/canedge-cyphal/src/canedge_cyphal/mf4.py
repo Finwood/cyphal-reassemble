@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import subprocess
 from collections.abc import Callable, Iterable
 from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass
@@ -166,8 +167,35 @@ def parse_canedge_mf4_file(mf4_file: str | Path | BinaryIO) -> pd.DataFrame:
     return read_dataframe_from_mdf_file_object(mdf)
 
 
-def read_mf4_file(path: Path) -> pa.Table:
+def resolve_canedge_mf4() -> Path:
+    env = os.environ.get("CANEDGE_MF4_BIN")
+    if env is not None:
+        path = Path(env)
+        if path.is_file() and os.access(path, os.X_OK):
+            return path
+    else:
+        path = Path(__file__).resolve().parents[2] / "build" / "canedge-mf4"
+        if path.is_file() and os.access(path, os.X_OK):
+            return path
+    raise FileNotFoundError(
+        "canedge-mf4 binary not found; build with: make -C packages/canedge-cyphal"
+    )
+
+
+def read_mf4_file_pandas(path: Path) -> pa.Table:
     return pa.Table.from_pandas(parse_canedge_mf4_file(path), schema=FRAME_SCHEMA)
+
+
+def read_mf4_file(path: Path) -> pa.Table:
+    proc = subprocess.run(
+        [resolve_canedge_mf4(), str(path)],
+        capture_output=True,
+        check=False,
+    )
+    if proc.returncode != 0:
+        raise RuntimeError(proc.stderr.decode("utf-8").strip())
+    with pa.ipc.open_stream(proc.stdout) as reader:
+        return reader.read_all()
 
 
 def choose_newest(paths: Iterable[Path]) -> list[CANedgeFile]:
