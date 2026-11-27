@@ -33,7 +33,8 @@ arrow::Status write_frame_ipc(const std::vector<Frame>& frames,
     auto schema = frame_schema();
 
     arrow::StringBuilder channel_b;
-    arrow::Int64Builder timestamp_b;
+    arrow::TimestampBuilder timestamp_b{arrow::timestamp(arrow::TimeUnit::MICRO, "UTC"),
+                                         arrow::default_memory_pool()};
     arrow::UInt32Builder id_b;
     arrow::UInt8Builder dlc_b;
     arrow::BooleanBuilder ide_b;
