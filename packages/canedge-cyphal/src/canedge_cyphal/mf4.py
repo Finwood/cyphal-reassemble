@@ -334,6 +334,10 @@ def convert_tree(
                 )
             continue
         jobs.append((chosen, dest, mf4_dir, scanned))
+    if jobs:
+        # A missing binary must fail the run. convert_one would otherwise
+        # write an .error marker beside every source and skip them next time.
+        resolve_canedge_mf4()
     failures = 0
     with ProcessPoolExecutor(max_workers=workers) as executor:
         futures = [
