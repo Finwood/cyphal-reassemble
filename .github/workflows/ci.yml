@@ -31,6 +31,9 @@ jobs:
         working-directory: packages/cyphal-reassemble
         run: make test
 
+      - name: Build and test canedge-mf4
+        run: make -C packages/canedge-cyphal test
+
       - uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true

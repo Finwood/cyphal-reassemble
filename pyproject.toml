@@ -3,6 +3,8 @@ members = ["packages/*"]
 
 [dependency-groups]
 dev = [
+    "mdf-iter>=2.1.1",
+    "pandas>=2.2",
     "pytest>=9",
     "ruff>=0.17",
     "ty>=0.0.104",
