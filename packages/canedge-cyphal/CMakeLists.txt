@@ -10,6 +10,7 @@ find_package(Arrow REQUIRED)
 add_library(canedge_mf4_core STATIC
     cpp/crc32.cpp
     cpp/mfc.cpp
+    cpp/decode.cpp
     cpp/third_party/heatshrink/heatshrink_decoder.c
 )
 target_include_directories(canedge_mf4_core PUBLIC cpp cpp/third_party/heatshrink)
@@ -28,6 +29,7 @@ enable_testing()
 add_executable(canedge_mf4_tests
     tests/cpp/test_crc.cpp
     tests/cpp/test_mfc.cpp
+    tests/cpp/test_decode.cpp
     cpp/third_party/heatshrink/heatshrink_encoder.c
 )
 target_link_libraries(canedge_mf4_tests PRIVATE canedge_mf4_core GTest::gtest_main)
