@@ -1,12 +1,16 @@
+import time
 from pathlib import Path
 
 import mdf_iter
+import pyarrow as pa
+import pyarrow.compute as pc
 import pytest
 from canedge_cyphal.mf4 import (
     FRAME_SCHEMA,
     CANedgeFile,
     convert_one,
     read_mf4_file,
+    read_mf4_file_pandas,
     resolve_canedge_mf4,
 )
 
@@ -157,3 +161,72 @@ def test_convert_one_marks_a_bad_mfc(tmp_path: Path):
     assert convert_one(chosen, dest, tmp_path / "mf4", scanned) == 1
     marker = source.with_name(source.name + ".error")
     assert "stage: mf4" in marker.read_text()
+
+
+def _median_of_three(read, path: Path):
+    samples = []
+    table = None
+    for _ in range(3):
+        started = time.perf_counter()
+        table = read(path)
+        samples.append(time.perf_counter() - started)
+    samples.sort()
+    return samples[1], table
+
+
+def test_canedge_mf4_is_at_least_twice_as_fast(tmp_path: Path):
+    import mf4gen
+
+    records = []
+    for index in range(300_000):
+        length = index % 9
+        records.append(
+            _frame(
+                bus=1 + (index % 2),
+                raw_us=index,
+                can_id=index & 0x7FF,
+                dlc=length,
+                data=bytes([index & 0xFF]) * length,
+            )
+        )
+    for index in range(300_000, 300_100):
+        records.append(
+            _frame(
+                kind="error",
+                bus=1 + (index % 2),
+                raw_us=index,
+                error_type=index % 6,
+            )
+        )
+
+    path = tmp_path / "speed.MF4"
+    mf4gen.write_mf4(path, records, start_ns=1_700_000_000_000_000_000)
+
+    old_median, old = _median_of_three(read_mf4_file_pandas, path)
+    new_median, new = _median_of_three(read_mf4_file, path)
+    print(f"new_median={new_median} old_median={old_median}")
+    assert new_median * 2 <= old_median, (
+        f"new_median={new_median} old_median={old_median}"
+    )
+
+    sort_keys = [
+        ("timestamp", "ascending"),
+        ("channel", "ascending"),
+        ("id", "ascending"),
+        ("data", "ascending"),
+    ]
+    old_sorted = old.take(pc.sort_indices(old, sort_keys=sort_keys))
+    new_sorted = new.take(pc.sort_indices(new, sort_keys=sort_keys))
+    for name in old_sorted.column_names:
+        if name == "timestamp":
+            continue
+        assert old_sorted.column(name).equals(new_sorted.column(name)), name
+
+    # raw_us is the generation index and every timestamp is distinct, so
+    # timestamp order is raw_us order.
+    expected = pc.add(
+        pa.scalar(1_700_000_000_000_000, type=pa.int64()),
+        pa.array(range(new_sorted.num_rows), type=pa.int64()),
+    )
+    actual = pc.cast(new_sorted.column("timestamp"), pa.int64())
+    assert pc.all(pc.equal(actual, expected)).as_py()
