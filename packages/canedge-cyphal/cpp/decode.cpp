@@ -5,7 +5,9 @@
 #include <cstring>
 #include <cstdint>
 #include <limits>
+#include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -240,16 +242,26 @@ bool read_bits(const uint8_t* rec, size_t rec_len, uint32_t byte_offset, uint32_
         *error = "MF4 channel is wider than 64 bits.";
         return false;
     }
+    if (nbits == 0) {
+        out = 0;
+        return true;
+    }
     uint64_t value = 0;
-    for (uint32_t i = 0; i < nbits; ++i) {
-        uint64_t abs_bit = uint64_t(bit_offset) + i;
-        uint64_t byte = uint64_t(byte_offset) + abs_bit / 8;
-        unsigned bit = static_cast<unsigned>(abs_bit % 8);
+    uint32_t got = 0;
+    uint64_t byte = uint64_t(byte_offset) + uint64_t(bit_offset) / 8;
+    unsigned shift = static_cast<unsigned>(bit_offset % 8);
+    while (got < nbits) {
         if (byte >= rec_len) {
             *error = "MF4 channel extends past the record.";
             return false;
         }
-        value |= (uint64_t((rec[byte] >> bit) & 1u)) << i;
+        unsigned take = 8u - shift;
+        if (take > nbits - got) take = nbits - got;
+        const uint64_t mask = (uint64_t{1} << take) - 1u;
+        value |= ((uint64_t(rec[byte]) >> shift) & mask) << got;
+        got += take;
+        shift = 0;
+        ++byte;
     }
     out = value;
     return true;
@@ -341,9 +353,87 @@ bool read_flag(const uint8_t* data, size_t size, const std::vector<size_t>& bloc
     return true;
 }
 
-const char* decode_data_frame(const uint8_t* data, size_t size, const std::vector<size_t>& blocks,
-                              const std::vector<Group>& groups, const std::vector<std::vector<uint8_t>>& vlsd_bytes,
-                              const Group& group, const uint8_t* rec, uint64_t start_time, Frame& frame) {
+struct BitField {
+    uint32_t byte_offset = 0;
+    uint32_t bit_offset = 0;
+    uint32_t bit_count = 0;
+};
+
+struct FlagPlan {
+    bool present = false;
+    bool constant = false;
+    bool value = false;
+    BitField bits;
+};
+
+// Channel layout and virtual constants are the same for every row of a group.
+// Resolving them once removes per-row name walks and "CAN" + std::to_string.
+struct DataPlan {
+    std::string channel;
+    BitField timestamp;
+    bool nanoseconds = false;
+    int64_t base_us = 0;
+    uint64_t start_time = 0;
+    FlagPlan ide;
+    FlagPlan tx;
+    FlagPlan edl;
+    FlagPlan brs;
+    FlagPlan esi;
+    BitField id;
+    BitField dlc;
+    BitField length;
+    bool vlsd = false;
+    size_t vlsd_group = 0;
+    BitField vlsd_offset;
+    uint32_t bytes_offset = 0;
+    uint32_t bytes_size = 0;
+};
+
+const char* bind_flag(const uint8_t* data, size_t size, const std::vector<size_t>& blocks, const Channel* channel,
+                      bool required, FlagPlan& out) {
+    if (channel == nullptr) {
+        if (required) return "MF4 data frame is missing a channel.";
+        out.present = false;
+        return nullptr;
+    }
+    out.present = true;
+    if (channel->type == 6) {
+        const char* error = nullptr;
+        bool value = false;
+        if (!read_flag(data, size, blocks, nullptr, 0, *channel, value, &error)) return error;
+        out.constant = true;
+        out.value = value;
+        return nullptr;
+    }
+    if (channel->type != 0) return "MF4 channel type is unsupported.";
+    out.constant = false;
+    out.bits.byte_offset = channel->byte_offset;
+    out.bits.bit_offset = channel->bit_offset;
+    out.bits.bit_count = channel->bit_count;
+    return nullptr;
+}
+
+const char* apply_flag(const FlagPlan& flag, const uint8_t* rec, size_t rec_len, bool& out) {
+    if (!flag.present) {
+        out = false;
+        return nullptr;
+    }
+    if (flag.constant) {
+        out = flag.value;
+        return nullptr;
+    }
+    const char* error = nullptr;
+    uint64_t bits = 0;
+    if (!read_bits(rec, rec_len, flag.bits.byte_offset, flag.bits.bit_offset, flag.bits.bit_count, bits, &error)) {
+        return error;
+    }
+    if (bits > 1) return "MF4 flag value is out of range.";
+    out = bits == 1;
+    return nullptr;
+}
+
+const char* build_data_plan(const uint8_t* data, size_t size, const std::vector<size_t>& blocks,
+                            const std::vector<Group>& groups, const Group& group, uint64_t start_time, DataPlan& plan) {
     const Channel* root = find_name(group.channels, "CAN_DataFrame");
     const Channel* timestamp = find_type(group.channels, 2);
     if (root == nullptr || timestamp == nullptr) return "MF4 data frame is missing a channel.";
@@ -354,81 +444,57 @@ const char* decode_data_frame(const uint8_t* data, size_t size, const std::vecto
         return "MF4 data frame is missing a channel.";
     }
 
-    const char* error = read_timestamp(data, size, blocks, *timestamp, rec, group.data_bytes, start_time,
-                                       frame.timestamp_us);
-    if (error != nullptr) return error;
+    const char* error = nullptr;
+    double time_offset = 0;
+    double time_slope = 0;
+    if (!read_linear(data, size, blocks, timestamp->cc, time_offset, time_slope, &error)) return error;
+    (void)time_offset;
+    plan.timestamp.byte_offset = timestamp->byte_offset;
+    plan.timestamp.bit_offset = timestamp->bit_offset;
+    plan.timestamp.bit_count = timestamp->bit_count;
+    if (time_slope == 1e-6) {
+        uint64_t base = start_time / 1000;
+        if (base > static_cast<uint64_t>(std::numeric_limits<int64_t>::max())) {
+            return "MF4 timestamp is out of range.";
+        }
+        plan.nanoseconds = false;
+        plan.base_us = static_cast<int64_t>(base);
+    } else if (time_slope == 1e-9) {
+        plan.nanoseconds = true;
+        plan.start_time = start_time;
+    } else {
+        return "MF4 time scale is not 1e-6 or 1e-9.";
+    }
 
     int64_t bus = 0;
     if (!virtual_int(data, size, blocks, *fields.bus, 0, 2147483647, bus, &error)) return error;
-    frame.channel = "CAN" + std::to_string(bus);
+    plan.channel = "CAN" + std::to_string(bus);
 
-    if (!read_flag(data, size, blocks, rec, group.data_bytes, *fields.ide, frame.ide, &error)) return error;
-    if (!read_flag(data, size, blocks, rec, group.data_bytes, *fields.dir, frame.tx, &error)) return error;
-    frame.rtr = false;
-    frame.err = false;
-    frame.edl = false;
-    frame.brs = false;
-    frame.esi = false;
-    if (fields.edl != nullptr &&
-        !read_flag(data, size, blocks, rec, group.data_bytes, *fields.edl, frame.edl, &error)) {
-        return error;
-    }
-    if (fields.brs != nullptr &&
-        !read_flag(data, size, blocks, rec, group.data_bytes, *fields.brs, frame.brs, &error)) {
-        return error;
-    }
-    if (fields.esi != nullptr &&
-        !read_flag(data, size, blocks, rec, group.data_bytes, *fields.esi, frame.esi, &error)) {
-        return error;
-    }
+    if (const char* flag_error = bind_flag(data, size, blocks, fields.ide, true, plan.ide)) return flag_error;
+    if (const char* flag_error = bind_flag(data, size, blocks, fields.dir, true, plan.tx)) return flag_error;
+    if (const char* flag_error = bind_flag(data, size, blocks, fields.edl, false, plan.edl)) return flag_error;
+    if (const char* flag_error = bind_flag(data, size, blocks, fields.brs, false, plan.brs)) return flag_error;
+    if (const char* flag_error = bind_flag(data, size, blocks, fields.esi, false, plan.esi)) return flag_error;
 
     if (fields.id->type != 0 || fields.dlc->type != 0 || fields.length->type != 0) {
         return "MF4 channel type is unsupported.";
     }
-    uint64_t id = 0;
-    if (!read_bits(rec, group.data_bytes, fields.id->byte_offset, fields.id->bit_offset, fields.id->bit_count, id,
-                   &error)) {
-        return error;
-    }
-    if (id > 0xffffffffu) return "MF4 id is out of range.";
-    frame.id = static_cast<uint32_t>(id);
+    plan.id = BitField{fields.id->byte_offset, fields.id->bit_offset, fields.id->bit_count};
+    plan.dlc = BitField{fields.dlc->byte_offset, fields.dlc->bit_offset, fields.dlc->bit_count};
+    plan.length = BitField{fields.length->byte_offset, fields.length->bit_offset, fields.length->bit_count};
 
-    uint64_t dlc = 0;
-    if (!read_bits(rec, group.data_bytes, fields.dlc->byte_offset, fields.dlc->bit_offset, fields.dlc->bit_count, dlc,
-                   &error)) {
-        return error;
-    }
-    if (dlc > 255) return "MF4 dlc is out of range.";
-    frame.dlc = static_cast<uint8_t>(dlc);
-
-    uint64_t data_length = 0;
-    if (!read_bits(rec, group.data_bytes, fields.length->byte_offset, fields.length->bit_offset,
-                   fields.length->bit_count, data_length, &error)) {
-        return error;
-    }
     if (fields.bytes->type == 1) {
-        // Byte offset into the VLSD group's records. DataLength does not trim the payload.
-        (void)data_length;
-        uint64_t offset = 0;
-        if (!read_bits(rec, group.data_bytes, fields.bytes->byte_offset, fields.bytes->bit_offset,
-                       fields.bytes->bit_count, offset, &error)) {
-            return error;
-        }
-        const std::vector<uint8_t>* blob = nullptr;
+        plan.vlsd = true;
+        plan.vlsd_offset =
+            BitField{fields.bytes->byte_offset, fields.bytes->bit_offset, fields.bytes->bit_count};
+        plan.vlsd_group = groups.size();
         for (size_t i = 0; i < groups.size(); ++i) {
             if (groups[i].vlsd && groups[i].file_offset == fields.bytes->data_link) {
-                blob = &vlsd_bytes[i];
+                plan.vlsd_group = i;
                 break;
             }
         }
-        if (blob == nullptr) return "MF4 variable length channel has no data group.";
-        if (offset > blob->size() || blob->size() - static_cast<size_t>(offset) < 4) {
-            return "MF4 variable length offset is out of range.";
-        }
-        size_t at = static_cast<size_t>(offset);
-        uint32_t n = ru32(blob->data() + at);
-        if (static_cast<size_t>(n) > blob->size() - at - 4) return "MF4 variable length payload does not fit.";
-        frame.data.assign(blob->data() + at + 4, blob->data() + at + 4 + n);
+        if (plan.vlsd_group == groups.size()) return "MF4 variable length channel has no data group.";
         return nullptr;
     }
     if (fields.bytes->type != 0) return "MF4 variable length payload is not supported.";
@@ -439,8 +505,80 @@ const char* decode_data_frame(const uint8_t* data, size_t size, const std::vecto
     if (nbytes > group.data_bytes || fields.bytes->byte_offset > group.data_bytes - nbytes) {
         return "MF4 channel extends past the record.";
     }
-    if (data_length > nbytes) return "MF4 data length does not fit.";
-    frame.data.assign(rec + fields.bytes->byte_offset, rec + fields.bytes->byte_offset + data_length);
+    plan.vlsd = false;
+    plan.bytes_offset = fields.bytes->byte_offset;
+    plan.bytes_size = nbytes;
+    return nullptr;
+}
+
+const char* decode_prepared_frame(const DataPlan& plan, const std::vector<std::vector<uint8_t>>& vlsd_bytes,
+                                  const uint8_t* rec, size_t rec_len, Frame& frame) {
+    const char* error = nullptr;
+    uint64_t raw = 0;
+    if (!read_bits(rec, rec_len, plan.timestamp.byte_offset, plan.timestamp.bit_offset, plan.timestamp.bit_count, raw,
+                   &error)) {
+        return error;
+    }
+    if (!plan.nanoseconds) {
+        if (raw > static_cast<uint64_t>(std::numeric_limits<int64_t>::max()) - static_cast<uint64_t>(plan.base_us)) {
+            return "MF4 timestamp is out of range.";
+        }
+        frame.timestamp_us = plan.base_us + static_cast<int64_t>(raw);
+    } else {
+        if (raw > std::numeric_limits<uint64_t>::max() - plan.start_time) return "MF4 timestamp is out of range.";
+        uint64_t micros = (plan.start_time + raw) / 1000;
+        if (micros > static_cast<uint64_t>(std::numeric_limits<int64_t>::max())) {
+            return "MF4 timestamp is out of range.";
+        }
+        frame.timestamp_us = static_cast<int64_t>(micros);
+    }
+
+    frame.channel = plan.channel;
+    frame.rtr = false;
+    frame.err = false;
+    if (const char* flag_error = apply_flag(plan.ide, rec, rec_len, frame.ide)) return flag_error;
+    if (const char* flag_error = apply_flag(plan.tx, rec, rec_len, frame.tx)) return flag_error;
+    if (const char* flag_error = apply_flag(plan.edl, rec, rec_len, frame.edl)) return flag_error;
+    if (const char* flag_error = apply_flag(plan.brs, rec, rec_len, frame.brs)) return flag_error;
+    if (const char* flag_error = apply_flag(plan.esi, rec, rec_len, frame.esi)) return flag_error;
+
+    uint64_t id = 0;
+    if (!read_bits(rec, rec_len, plan.id.byte_offset, plan.id.bit_offset, plan.id.bit_count, id, &error)) return error;
+    if (id > 0xffffffffu) return "MF4 id is out of range.";
+    frame.id = static_cast<uint32_t>(id);
+
+    uint64_t dlc = 0;
+    if (!read_bits(rec, rec_len, plan.dlc.byte_offset, plan.dlc.bit_offset, plan.dlc.bit_count, dlc, &error)) {
+        return error;
+    }
+    if (dlc > 255) return "MF4 dlc is out of range.";
+    frame.dlc = static_cast<uint8_t>(dlc);
+
+    uint64_t data_length = 0;
+    if (!read_bits(rec, rec_len, plan.length.byte_offset, plan.length.bit_offset, plan.length.bit_count, data_length,
+                   &error)) {
+        return error;
+    }
+    if (plan.vlsd) {
+        // Byte offset into the VLSD group's records. DataLength does not trim the payload.
+        (void)data_length;
+        uint64_t offset = 0;
+        if (!read_bits(rec, rec_len, plan.vlsd_offset.byte_offset, plan.vlsd_offset.bit_offset,
+                       plan.vlsd_offset.bit_count, offset, &error)) {
+            return error;
+        }
+        const std::vector<uint8_t>& blob = vlsd_bytes[plan.vlsd_group];
+        if (offset > blob.size() || blob.size() - static_cast<size_t>(offset) < 4) {
+            return "MF4 variable length offset is out of range.";
+        }
+        size_t at = static_cast<size_t>(offset);
+        uint32_t n = ru32(blob.data() + at);
+        if (static_cast<size_t>(n) > blob.size() - at - 4) return "MF4 variable length payload does not fit.";
+        frame.data.assign(blob.data() + at + 4, n);
+        return nullptr;
+    }
+    if (data_length > plan.bytes_size) return "MF4 data length does not fit.";
+    frame.data.assign(rec + plan.bytes_offset, static_cast<size_t>(data_length));
     return nullptr;
 }
 
@@ -495,7 +633,7 @@ const char* decode_error_frame(const uint8_t* data, size_t size, const std::vect
     const SocketcanError& row = kSocketcanErrors[static_cast<size_t>(kind)];
     frame.id = row.id;
     frame.dlc = 8;
-    frame.data.assign(row.bytes, row.bytes + 8);
+    frame.data.assign(row.bytes, 8);
     frame.ide = false;
     frame.rtr = false;
     frame.err = true;
@@ -600,22 +738,26 @@ DecodeResult decode_mf4(const uint8_t* data, size_t size) {
         size_t rec = 0;
         size_t index = 0;
     };
+
+    const Group* group_by_id[256] = {};
+    size_t group_index_by_id[256] = {};
+    for (size_t i = 0; i < groups.size(); ++i) {
+        if (groups[i].record_id > 255) continue;
+        auto id = static_cast<uint8_t>(groups[i].record_id);
+        group_by_id[id] = &groups[i];
+        group_index_by_id[id] = i;
+    }
+
     std::vector<std::vector<uint8_t>> vlsd_bytes(groups.size());
     std::vector<Pending> pending;
+    pending.reserve(size / 8);
     size_t pos = static_cast<size_t>(dt_off) + 24;
     size_t scan = 0;
     while (pos < size) {
         uint8_t record_id = data[pos++];
-        const Group* group = nullptr;
-        size_t group_index = 0;
-        for (size_t i = 0; i < groups.size(); ++i) {
-            if (groups[i].record_id == record_id) {
-                group = &groups[i];
-                group_index = i;
-                break;
-            }
-        }
+        const Group* group = group_by_id[record_id];
         if (group == nullptr) return fail("MF4 record id is unknown.");
+        size_t group_index = group_index_by_id[record_id];
         if (group->vlsd) {
             if (size - pos < 4) return fail("MF4 record is truncated.");
             uint32_t n = ru32(data + pos);
@@ -633,6 +775,7 @@ DecodeResult decode_mf4(const uint8_t* data, size_t size) {
         pos += group->data_bytes;
     }
 
+    std::vector<std::unique_ptr<DataPlan>> plans(groups.size());
     std::vector<TaggedFrame> rows;
     rows.reserve(pending.size());
     for (const Pending& item : pending) {
@@ -641,8 +784,15 @@ DecodeResult decode_mf4(const uint8_t* data, size_t size) {
         tagged.index = item.index;
         const char* row_error = nullptr;
         if (group.data_frame) {
-            row_error = decode_data_frame(data, size, blocks, groups, vlsd_bytes, group, data + item.rec, start_time,
-                                          tagged.frame);
+            if (!plans[item.group_index]) {
+                auto plan = std::make_unique<DataPlan>();
+                row_error = build_data_plan(data, size, blocks, groups, group, start_time, *plan);
+                if (row_error == nullptr) plans[item.group_index] = std::move(plan);
+            }
+            if (row_error == nullptr) {
+                row_error = decode_prepared_frame(*plans[item.group_index], vlsd_bytes, data + item.rec,
+                                                  group.data_bytes, tagged.frame);
+            }
         } else {
             row_error = decode_error_frame(data, size, blocks, group, data + item.rec, start_time, tagged.frame);
         }
@@ -650,13 +800,14 @@ DecodeResult decode_mf4(const uint8_t* data, size_t size) {
         rows.push_back(std::move(tagged));
     }
 
-    std::stable_sort(rows.begin(), rows.end(), [](const TaggedFrame& a, const TaggedFrame& b) {
+    auto before = [](const TaggedFrame& a, const TaggedFrame& b) {
         if (a.frame.timestamp_us != b.frame.timestamp_us) return a.frame.timestamp_us < b.frame.timestamp_us;
         if (a.frame.channel != b.frame.channel) return a.frame.channel < b.frame.channel;
         if (a.frame.id != b.frame.id) return a.frame.id < b.frame.id;
         if (a.frame.data != b.frame.data) return a.frame.data < b.frame.data;
         return a.index < b.index;
-    });
+    };
+    if (!std::is_sorted(rows.begin(), rows.end(), before)) std::stable_sort(rows.begin(), rows.end(), before);
 
     DecodeResult result;
     result.frames.reserve(rows.size());
