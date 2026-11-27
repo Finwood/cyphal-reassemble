@@ -87,42 +87,71 @@ TEST(Decode, RemoteFrameIsSkipped) {
 }
 
 TEST(Decode, StableSortKeepsDataSectionOrderOnTies) {
-    // two classic frames, same timestamp, channel, id, and data, scan order A then B
-    // output order A then B. Identity is the vector order of two equal frames.
+    // Data frame id 0x8 with eight zero bytes, then ErrorType 0 on the same
+    // bus and timestamp. They tie on timestamp, channel, id, and data and
+    // differ only in err. A later record with an earlier timestamp is out of
+    // order, so the sort has to run. Data-section order of the tie is kept.
     MdfBuilder builder;
     builder.add_classic_group(1, 1);
-    builder.add_classic_record(1, 5, 0x10, 1, {0xab});
-    builder.add_classic_record(1, 5, 0x10, 1, {0xab});
+    builder.add_error_group(2, 1);
+    builder.add_classic_record(1, /*raw_us=*/10, /*can_id=*/0x8, /*dlc=*/8, std::vector<uint8_t>(8, 0));
+    builder.add_error_record(2, /*raw_us=*/10, /*error_type=*/0);
+    builder.add_classic_record(1, /*raw_us=*/1, /*can_id=*/0x11, /*dlc=*/1, {0xab});
     auto file = builder.build();
     auto got = decode_mf4(file.data(), file.size());
     ASSERT_TRUE(got.error.empty()) << got.error;
-    ASSERT_EQ(got.frames.size(), 2u);
-    const auto& a = got.frames[0];
-    const auto& b = got.frames[1];
-    EXPECT_EQ(a.channel, "CAN1");
-    EXPECT_EQ(a.timestamp_us, 5);
-    EXPECT_EQ(a.id, 0x10u);
-    EXPECT_EQ(a.dlc, 1);
-    EXPECT_EQ(a.data, std::vector<uint8_t>({0xab}));
-    EXPECT_FALSE(a.ide);
-    EXPECT_FALSE(a.rtr);
-    EXPECT_FALSE(a.err);
-    EXPECT_FALSE(a.edl);
-    EXPECT_FALSE(a.brs);
-    EXPECT_FALSE(a.esi);
-    EXPECT_FALSE(a.tx);
-    EXPECT_EQ(b.channel, a.channel);
-    EXPECT_EQ(b.timestamp_us, a.timestamp_us);
-    EXPECT_EQ(b.id, a.id);
-    EXPECT_EQ(b.dlc, a.dlc);
-    EXPECT_EQ(b.data, a.data);
-    EXPECT_EQ(b.ide, a.ide);
-    EXPECT_EQ(b.rtr, a.rtr);
-    EXPECT_EQ(b.err, a.err);
-    EXPECT_EQ(b.edl, a.edl);
-    EXPECT_EQ(b.brs, a.brs);
-    EXPECT_EQ(b.esi, a.esi);
-    EXPECT_EQ(b.tx, a.tx);
+    ASSERT_EQ(got.frames.size(), 3u);
+
+    EXPECT_EQ(got.frames[0].timestamp_us, 1);
+    EXPECT_EQ(got.frames[0].id, 0x11u);
+    EXPECT_FALSE(got.frames[0].err);
+
+    const auto& data_frame = got.frames[1];
+    const auto& error_frame = got.frames[2];
+    EXPECT_EQ(data_frame.timestamp_us, 10);
+    EXPECT_EQ(error_frame.timestamp_us, 10);
+    EXPECT_EQ(data_frame.channel, "CAN1");
+    EXPECT_EQ(error_frame.channel, data_frame.channel);
+    EXPECT_EQ(data_frame.id, 0x8u);
+    EXPECT_EQ(error_frame.id, data_frame.id);
+    EXPECT_EQ(data_frame.data, std::vector<uint8_t>(8, 0));
+    EXPECT_EQ(error_frame.data, data_frame.data);
+    EXPECT_FALSE(data_frame.err);
+    EXPECT_TRUE(error_frame.err);
+}
+
+TEST(Decode, ErrorTypesMatchSocketcanMap) {
+    struct Row {
+        uint8_t error_type;
+        uint32_t id;
+        uint8_t data[8];
+    };
+    const Row rows[] = {
+        {0, 0x8, {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}},
+        {1, 0x8, {0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00}},
+        {2, 0x8, {0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00}},
+        {3, 0x8, {0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00}},
+        {4, 0x8, {0x00, 0x00, 0x01, 0x08, 0x00, 0x00, 0x00, 0x00}},
+        {5, 0x20, {0x00, 0x00, 0x01, 0x19, 0x00, 0x00, 0x00, 0x00}},
+    };
+
+    MdfBuilder builder;
+    builder.add_error_group(1, 1);
+    for (const Row& row : rows) {
+        builder.add_error_record(1, row.error_type, row.error_type);
+    }
+    auto file = builder.build();
+    auto got = decode_mf4(file.data(), file.size());
+    ASSERT_TRUE(got.error.empty()) << got.error;
+    ASSERT_EQ(got.frames.size(), 6u);
+    for (size_t i = 0; i < 6; ++i) {
+        EXPECT_EQ(got.frames[i].id, rows[i].id) << "ErrorType " << int(rows[i].error_type);
+        EXPECT_EQ(got.frames[i].data, std::vector<uint8_t>(rows[i].data, rows[i].data + 8))
+            << "ErrorType " << int(rows[i].error_type);
+        EXPECT_EQ(got.frames[i].dlc, 8);
+        EXPECT_TRUE(got.frames[i].err);
+        EXPECT_EQ(got.frames[i].timestamp_us, rows[i].error_type);
+    }
 }
 
 TEST(Decode, NanosecondScaleDividesSum) {
