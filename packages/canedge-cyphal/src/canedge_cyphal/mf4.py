@@ -8,8 +8,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import BinaryIO
 
-import mdf_iter
-import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 
@@ -58,7 +56,6 @@ DTYPES = {
     "data": object,
 }
 COLUMNS = list(DTYPES.keys())
-EMPTY_DF = pd.DataFrame(columns=COLUMNS).astype(DTYPES)
 
 
 @dataclass(frozen=True, slots=True)
@@ -85,9 +82,15 @@ class CANedgeFile:
         )
 
 
+def _empty_df():
+    import pandas as pd
+
+    return pd.DataFrame(columns=COLUMNS).astype(DTYPES)
+
+
 def normalize_frames(df: pd.DataFrame) -> pd.DataFrame:
     if len(df) == 0:
-        return EMPTY_DF.copy()
+        return _empty_df().copy()
 
     df = df.copy()
     df.reset_index(inplace=True)
@@ -118,7 +121,7 @@ def normalize_frames(df: pd.DataFrame) -> pd.DataFrame:
 
 def normalize_errors(df: pd.DataFrame) -> pd.DataFrame:
     if len(df) == 0:
-        return EMPTY_DF.copy()
+        return _empty_df().copy()
 
     df = df.copy()
     df.reset_index(inplace=True)
@@ -150,6 +153,8 @@ def normalize_errors(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def read_dataframe_from_mdf_file_object(mdf: mdf_iter.MdfFile) -> pd.DataFrame:
+    import pandas as pd
+
     return (
         pd.concat(
             [
@@ -163,6 +168,8 @@ def read_dataframe_from_mdf_file_object(mdf: mdf_iter.MdfFile) -> pd.DataFrame:
 
 
 def parse_canedge_mf4_file(mf4_file: str | Path | BinaryIO) -> pd.DataFrame:
+    import mdf_iter
+
     mdf = mdf_iter.MdfFile(mf4_file)
     return read_dataframe_from_mdf_file_object(mdf)
 
