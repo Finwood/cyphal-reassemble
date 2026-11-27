@@ -94,6 +94,7 @@ struct Channel {
     uint32_t byte_offset = 0;
     uint32_t bit_count = 0;
     uint64_t cc = 0;
+    uint64_t data_link = 0;
     std::vector<Channel> children;
 };
 
@@ -137,6 +138,7 @@ bool parse_channels(const uint8_t* data, size_t size, const std::vector<size_t>&
         ch.byte_offset = ru32(d + 4);
         ch.bit_count = ru32(d + 8);
         ch.cc = link_at(data, block, 4);
+        ch.data_link = link_at(data, block, 5);
         ch.name = tx_text(data, size, link_at(data, block, 2), error);
         if (*error != nullptr) return false;
         uint64_t composition = link_at(data, block, 1);
@@ -166,11 +168,22 @@ const Channel* find_type(const std::vector<Channel>& channels, uint8_t type) {
     return nullptr;
 }
 
+const Channel* find_leaf(const std::vector<Channel>& channels, const char* leaf) {
+    for (const auto& ch : channels) {
+        if (leaf_name(ch.name) == leaf) return &ch;
+        if (const Channel* nested = find_leaf(ch.children, leaf)) return nested;
+    }
+    return nullptr;
+}
+
 struct Group {
+    size_t file_offset = 0;
     uint64_t record_id = 0;
     uint16_t flags = 0;
     uint32_t data_bytes = 0;
     bool data_frame = false;
+    bool error_frame = false;
+    bool vlsd = false;
     std::vector<Channel> channels;
 };
 
@@ -242,6 +255,40 @@ bool read_bits(const uint8_t* rec, size_t rec_len, uint32_t byte_offset, uint32_
     return true;
 }
 
+// Slope is the float64 of the C++ literals 1e-6 and 1e-9. Any other value fails.
+const char* read_timestamp(const uint8_t* data, size_t size, const std::vector<size_t>& blocks, const Channel& timestamp,
+                           const uint8_t* rec, size_t rec_len, uint64_t start_time, int64_t& out) {
+    const char* error = nullptr;
+    uint64_t raw = 0;
+    if (!read_bits(rec, rec_len, timestamp.byte_offset, timestamp.bit_offset, timestamp.bit_count, raw, &error)) {
+        return error;
+    }
+    double time_offset = 0;
+    double time_slope = 0;
+    if (!read_linear(data, size, blocks, timestamp.cc, time_offset, time_slope, &error)) return error;
+    // The linear offset on the session file is 0.
+    (void)time_offset;
+    if (time_slope == 1e-6) {
+        uint64_t base = start_time / 1000;
+        if (base > static_cast<uint64_t>(std::numeric_limits<int64_t>::max()) ||
+            raw > static_cast<uint64_t>(std::numeric_limits<int64_t>::max()) - base) {
+            return "MF4 timestamp is out of range.";
+        }
+        out = static_cast<int64_t>(base) + static_cast<int64_t>(raw);
+        return nullptr;
+    }
+    if (time_slope == 1e-9) {
+        if (raw > std::numeric_limits<uint64_t>::max() - start_time) return "MF4 timestamp is out of range.";
+        uint64_t micros = (start_time + raw) / 1000;
+        if (micros > static_cast<uint64_t>(std::numeric_limits<int64_t>::max())) {
+            return "MF4 timestamp is out of range.";
+        }
+        out = static_cast<int64_t>(micros);
+        return nullptr;
+    }
+    return "MF4 time scale is not 1e-6 or 1e-9.";
+}
+
 struct Fields {
     const Channel* bus = nullptr;
     const Channel* id = nullptr;
@@ -294,8 +341,9 @@ bool read_flag(const uint8_t* data, size_t size, const std::vector<size_t>& bloc
     return true;
 }
 
-const char* decode_data_frame(const uint8_t* data, size_t size, const std::vector<size_t>& blocks, const Group& group,
-                              const uint8_t* rec, uint64_t start_time, Frame& frame) {
+const char* decode_data_frame(const uint8_t* data, size_t size, const std::vector<size_t>& blocks,
+                              const std::vector<Group>& groups, const std::vector<std::vector<uint8_t>>& vlsd_bytes,
+                              const Group& group, const uint8_t* rec, uint64_t start_time, Frame& frame) {
     const Channel* root = find_name(group.channels, "CAN_DataFrame");
     const Channel* timestamp = find_type(group.channels, 2);
     if (root == nullptr || timestamp == nullptr) return "MF4 data frame is missing a channel.";
@@ -306,24 +354,9 @@ const char* decode_data_frame(const uint8_t* data, size_t size, const std::vecto
         return "MF4 data frame is missing a channel.";
     }
 
-    const char* error = nullptr;
-    uint64_t raw = 0;
-    if (!read_bits(rec, group.data_bytes, timestamp->byte_offset, timestamp->bit_offset, timestamp->bit_count, raw,
-                   &error)) {
-        return error;
-    }
-    double time_offset = 0;
-    double time_slope = 0;
-    if (!read_linear(data, size, blocks, timestamp->cc, time_offset, time_slope, &error)) return error;
-    // Classic microseconds use the raw count. The linear offset on the session file is 0.
-    (void)time_offset;
-    if (time_slope != 1e-6) return "MF4 time scale is not 1e-6.";
-    uint64_t base = start_time / 1000;
-    if (base > static_cast<uint64_t>(std::numeric_limits<int64_t>::max()) ||
-        raw > static_cast<uint64_t>(std::numeric_limits<int64_t>::max()) - base) {
-        return "MF4 timestamp is out of range.";
-    }
-    frame.timestamp_us = static_cast<int64_t>(base) + static_cast<int64_t>(raw);
+    const char* error = read_timestamp(data, size, blocks, *timestamp, rec, group.data_bytes, start_time,
+                                       frame.timestamp_us);
+    if (error != nullptr) return error;
 
     int64_t bus = 0;
     if (!virtual_int(data, size, blocks, *fields.bus, 0, 2147483647, bus, &error)) return error;
@@ -373,6 +406,31 @@ const char* decode_data_frame(const uint8_t* data, size_t size, const std::vecto
                    fields.length->bit_count, data_length, &error)) {
         return error;
     }
+    if (fields.bytes->type == 1) {
+        // Byte offset into the VLSD group's records. DataLength does not trim the payload.
+        (void)data_length;
+        uint64_t offset = 0;
+        if (!read_bits(rec, group.data_bytes, fields.bytes->byte_offset, fields.bytes->bit_offset,
+                       fields.bytes->bit_count, offset, &error)) {
+            return error;
+        }
+        const std::vector<uint8_t>* blob = nullptr;
+        for (size_t i = 0; i < groups.size(); ++i) {
+            if (groups[i].vlsd && groups[i].file_offset == fields.bytes->data_link) {
+                blob = &vlsd_bytes[i];
+                break;
+            }
+        }
+        if (blob == nullptr) return "MF4 variable length channel has no data group.";
+        if (offset > blob->size() || blob->size() - static_cast<size_t>(offset) < 4) {
+            return "MF4 variable length offset is out of range.";
+        }
+        size_t at = static_cast<size_t>(offset);
+        uint32_t n = ru32(blob->data() + at);
+        if (static_cast<size_t>(n) > blob->size() - at - 4) return "MF4 variable length payload does not fit.";
+        frame.data.assign(blob->data() + at + 4, blob->data() + at + 4 + n);
+        return nullptr;
+    }
     if (fields.bytes->type != 0) return "MF4 variable length payload is not supported.";
     if (fields.bytes->bit_offset != 0 || fields.bytes->bit_count % 8 != 0) {
         return "MF4 data bytes are not a byte array.";
@@ -383,6 +441,68 @@ const char* decode_data_frame(const uint8_t* data, size_t size, const std::vecto
     }
     if (data_length > nbytes) return "MF4 data length does not fit.";
     frame.data.assign(rec + fields.bytes->byte_offset, rec + fields.bytes->byte_offset + data_length);
+    return nullptr;
+}
+
+struct SocketcanError {
+    uint32_t id;
+    uint8_t bytes[8];
+};
+
+// SocketCAN error-class map from the design spec / mf4.py.
+const SocketcanError kSocketcanErrors[] = {
+    {0x8, {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}},
+    {0x8, {0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00}},
+    {0x8, {0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00}},
+    {0x8, {0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00}},
+    {0x8, {0x00, 0x00, 0x01, 0x08, 0x00, 0x00, 0x00, 0x00}},
+    {0x20, {0x00, 0x00, 0x01, 0x19, 0x00, 0x00, 0x00, 0x00}},
+};
+
+const char* decode_error_frame(const uint8_t* data, size_t size, const std::vector<size_t>& blocks, const Group& group,
+                               const uint8_t* rec, uint64_t start_time, Frame& frame) {
+    const Channel* root = find_name(group.channels, "CAN_ErrorFrame");
+    const Channel* timestamp = find_type(group.channels, 2);
+    const Channel* bus = find_leaf(group.channels, "BusChannel");
+    const Channel* error_type = find_leaf(group.channels, "ErrorType");
+    if (root == nullptr || timestamp == nullptr || bus == nullptr || error_type == nullptr) {
+        return "MF4 error frame is missing a channel.";
+    }
+
+    const char* error =
+        read_timestamp(data, size, blocks, *timestamp, rec, group.data_bytes, start_time, frame.timestamp_us);
+    if (error != nullptr) return error;
+
+    int64_t bus_value = 0;
+    if (!virtual_int(data, size, blocks, *bus, 0, 2147483647, bus_value, &error)) return error;
+    frame.channel = "CAN" + std::to_string(bus_value);
+
+    if (error_type->type != 0) return "MF4 channel type is unsupported.";
+    uint64_t kind = 0;
+    if (!read_bits(rec, group.data_bytes, error_type->byte_offset, error_type->bit_offset, error_type->bit_count, kind,
+                   &error)) {
+        return error;
+    }
+    if (kind > 5) return "MF4 error type is out of range.";
+
+    for (const char* name : {"Dir", "IDE", "EDL", "BRS", "ESI"}) {
+        const Channel* ch = find_leaf(group.channels, name);
+        if (ch == nullptr) continue;
+        bool ignored = false;
+        if (!read_flag(data, size, blocks, rec, group.data_bytes, *ch, ignored, &error)) return error;
+    }
+
+    const SocketcanError& row = kSocketcanErrors[static_cast<size_t>(kind)];
+    frame.id = row.id;
+    frame.dlc = 8;
+    frame.data.assign(row.bytes, row.bytes + 8);
+    frame.ide = false;
+    frame.rtr = false;
+    frame.err = true;
+    frame.edl = false;
+    frame.brs = false;
+    frame.esi = false;
+    frame.tx = false;
     return nullptr;
 }
 
@@ -455,13 +575,18 @@ DecodeResult decode_mf4(const uint8_t* data, size_t size) {
         if (data_size(cg) < 32) return fail("MF4 channel group block is truncated.");
         const uint8_t* cg_data = data_at(data, cg);
         Group group;
+        group.file_offset = static_cast<size_t>(cg_off);
         group.record_id = ru64(cg_data);
         group.flags = ru16(cg_data + 16);
         group.data_bytes = ru32(cg_data + 24);
         if (!parse_channels(data, size, blocks, link_at(data, cg, 1), group.channels, &error, 0)) {
             return fail(error != nullptr ? error : "MF4 channel block is invalid.");
         }
-        group.data_frame = find_name(group.channels, "CAN_DataFrame") != nullptr;
+        group.vlsd = (group.flags & 0x0001u) != 0;
+        if (!group.vlsd) {
+            group.data_frame = find_name(group.channels, "CAN_DataFrame") != nullptr;
+            group.error_frame = !group.data_frame && find_name(group.channels, "CAN_ErrorFrame") != nullptr;
+        }
         for (const auto& prev : groups) {
             if (prev.record_id == group.record_id) return fail("MF4 record id is repeated.");
         }
@@ -470,35 +595,57 @@ DecodeResult decode_mf4(const uint8_t* data, size_t size) {
         cg_off = next;
     }
 
-    std::vector<TaggedFrame> rows;
+    struct Pending {
+        size_t group_index = 0;
+        size_t rec = 0;
+        size_t index = 0;
+    };
+    std::vector<std::vector<uint8_t>> vlsd_bytes(groups.size());
+    std::vector<Pending> pending;
     size_t pos = static_cast<size_t>(dt_off) + 24;
+    size_t scan = 0;
     while (pos < size) {
         uint8_t record_id = data[pos++];
         const Group* group = nullptr;
-        for (const auto& candidate : groups) {
-            if (candidate.record_id == record_id) {
-                group = &candidate;
+        size_t group_index = 0;
+        for (size_t i = 0; i < groups.size(); ++i) {
+            if (groups[i].record_id == record_id) {
+                group = &groups[i];
+                group_index = i;
                 break;
             }
         }
         if (group == nullptr) return fail("MF4 record id is unknown.");
-        if ((group->flags & 0x0001u) != 0) {
-            if (group->data_frame) return fail("MF4 variable length record is not supported.");
+        if (group->vlsd) {
             if (size - pos < 4) return fail("MF4 record is truncated.");
             uint32_t n = ru32(data + pos);
-            pos += 4;
-            if (n > size - pos) return fail("MF4 record is truncated.");
-            pos += n;
+            if (static_cast<size_t>(n) > size - pos - 4) return fail("MF4 record is truncated.");
+            size_t nbytes = 4 + static_cast<size_t>(n);
+            vlsd_bytes[group_index].insert(vlsd_bytes[group_index].end(), data + pos, data + pos + nbytes);
+            pos += nbytes;
             continue;
         }
         if (group->data_bytes > size - pos) return fail("MF4 record is truncated.");
-        const uint8_t* rec = data + pos;
+        if (group->data_frame || group->error_frame) {
+            pending.push_back(Pending{group_index, pos, scan});
+            ++scan;
+        }
         pos += group->data_bytes;
-        if (!group->data_frame) continue;
+    }
+
+    std::vector<TaggedFrame> rows;
+    rows.reserve(pending.size());
+    for (const Pending& item : pending) {
+        const Group& group = groups[item.group_index];
         TaggedFrame tagged;
-        tagged.index = rows.size();
-        const char* row_error =
-            decode_data_frame(data, size, blocks, *group, rec, start_time, tagged.frame);
+        tagged.index = item.index;
+        const char* row_error = nullptr;
+        if (group.data_frame) {
+            row_error = decode_data_frame(data, size, blocks, groups, vlsd_bytes, group, data + item.rec, start_time,
+                                          tagged.frame);
+        } else {
+            row_error = decode_error_frame(data, size, blocks, group, data + item.rec, start_time, tagged.frame);
+        }
         if (row_error != nullptr) return fail(row_error);
         rows.push_back(std::move(tagged));
     }
