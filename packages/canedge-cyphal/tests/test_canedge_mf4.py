@@ -156,8 +156,7 @@ def test_convert_one_marks_a_bad_mfc(tmp_path: Path):
         / "session=00000007"
         / f"{chosen.path.stem}.parquet"
     )
-    scanned = {(chosen.logger, chosen.session, chosen.split, chosen.path.stem): chosen}
-    assert convert_one(chosen, dest, tmp_path / "mf4", scanned) == 1
+    assert convert_one(chosen, dest, tmp_path / "mf4") == 1
     marker = source.with_name(source.name + ".error")
     assert "stage: mf4" in marker.read_text()
 

@@ -6,7 +6,7 @@ from collections.abc import Callable, Iterable
 from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, BinaryIO
+from typing import TYPE_CHECKING, BinaryIO, NoReturn
 
 import pyarrow as pa
 import pyarrow.parquet as pq
@@ -198,15 +198,33 @@ def read_mf4_file_pandas(path: Path) -> pa.Table:
 
 
 def read_mf4_file(path: Path) -> pa.Table:
-    proc = subprocess.run(
+    # Stream stdout while the child runs so Arrow IPC writes do not block on a
+    # full pipe. capture_output() lets the GIL stall the drain thread, which
+    # puts canedge-mf4 to sleep on anon_pipe_write and leaves the core idle.
+    proc = subprocess.Popen(
         [resolve_canedge_mf4(), str(path)],
-        capture_output=True,
-        check=False,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
     )
-    if proc.returncode != 0:
-        raise RuntimeError(proc.stderr.decode("utf-8").strip())
-    with pa.ipc.open_stream(proc.stdout) as reader:
-        return reader.read_all()
+    assert proc.stdout is not None and proc.stderr is not None
+
+    def _fail_from_child(cause: BaseException | None = None) -> NoReturn:
+        stderr = proc.stderr.read() if proc.stderr is not None else b""
+        if proc.poll() is None:
+            proc.kill()
+        code = proc.wait()
+        message = stderr.decode("utf-8").strip() or f"canedge-mf4 exited {code}"
+        raise RuntimeError(message) from cause
+
+    try:
+        with pa.ipc.open_stream(proc.stdout) as reader:
+            table = reader.read_all()
+    except Exception as exc:  # noqa: BLE001
+        _fail_from_child(exc)
+    code = proc.wait()
+    if code != 0:
+        _fail_from_child()
+    return table
 
 
 def choose_newest(paths: Iterable[Path]) -> list[CANedgeFile]:
@@ -244,7 +262,6 @@ def _drop_stale_uploads(
     chosen: CANedgeFile,
     dest: Path,
     mf4_dir: Path,
-    scanned: dict[tuple[str, int, int, str], CANedgeFile],
 ) -> None:
     session_dir = dest.parent
     if not session_dir.is_dir():
@@ -263,11 +280,6 @@ def _drop_stale_uploads(
         if other.path.stem == chosen.path.stem:
             continue
         parquet.unlink(missing_ok=True)
-        obsolete = scanned.get(
-            (other.logger, other.session, other.split, other.path.stem)
-        )
-        if obsolete is not None:
-            _error_marker(obsolete.path).unlink(missing_ok=True)
         for suffix in (".MF4.error", ".MFC.error"):
             (
                 mf4_dir / chosen.logger / source_session / f"{other.path.stem}{suffix}"
@@ -278,7 +290,6 @@ def convert_one(
     chosen: CANedgeFile,
     dest: Path,
     mf4_dir: Path,
-    scanned: dict[tuple[str, int, int, str], CANedgeFile],
     *,
     read_mf4: Callable[[Path], pa.Table] | None = None,
 ) -> int:
@@ -298,7 +309,7 @@ def convert_one(
     pq.write_table(table, tmp)
     os.replace(tmp, dest)
     _error_marker(chosen.path).unlink(missing_ok=True)
-    _drop_stale_uploads(chosen=chosen, dest=dest, mf4_dir=mf4_dir, scanned=scanned)
+    _drop_stale_uploads(chosen=chosen, dest=dest, mf4_dir=mf4_dir)
     return 0
 
 
@@ -309,17 +320,7 @@ def convert_tree(
     workers: int | None = None,
 ) -> int:
     sources = list(mf4_dir.glob("*/*/*-*.MF[4C]"))
-    scanned: dict[tuple[str, int, int, str], CANedgeFile] = {}
-    for path in sources:
-        parsed = _parse_canedge_file(path)
-        if parsed is None:
-            continue
-        scanned[(parsed.logger, parsed.session, parsed.split, parsed.path.stem)] = (
-            parsed
-        )
-    jobs: list[
-        tuple[CANedgeFile, Path, Path, dict[tuple[str, int, int, str], CANedgeFile]]
-    ] = []
+    jobs: list[tuple[CANedgeFile, Path, Path]] = []
     for chosen in choose_newest(sources):
         dest = (
             frames_dir
@@ -328,12 +329,11 @@ def convert_tree(
             / f"{chosen.path.stem}.parquet"
         )
         if not should_convert(chosen.path, dest):
-            if dest.exists():
-                _drop_stale_uploads(
-                    chosen=chosen, dest=dest, mf4_dir=mf4_dir, scanned=scanned
-                )
+            # Stale-upload cleanup runs in convert_one when a split is converted.
+            # Doing it here for every up-to-date file walked the whole hive on
+            # the parent (~16s) before any worker started.
             continue
-        jobs.append((chosen, dest, mf4_dir, scanned))
+        jobs.append((chosen, dest, mf4_dir))
     if jobs:
         # A missing binary must fail the run. convert_one would otherwise
         # write an .error marker beside every source and skip them next time.
@@ -341,8 +341,8 @@ def convert_tree(
     failures = 0
     with ProcessPoolExecutor(max_workers=workers) as executor:
         futures = [
-            executor.submit(convert_one, chosen, dest, mf4_dir, scanned)
-            for chosen, dest, mf4_dir, scanned in jobs
+            executor.submit(convert_one, chosen, dest, mf4_dir)
+            for chosen, dest, mf4_dir in jobs
         ]
         for future in futures:
             failures += future.result()

@@ -749,6 +749,7 @@ DecodeResult decode_mf4(const uint8_t* data, size_t size) {
     }
 
     std::vector<std::vector<uint8_t>> vlsd_bytes(groups.size());
+    for (auto& blob : vlsd_bytes) blob.reserve(size / 4);
     std::vector<Pending> pending;
     pending.reserve(size / 8);
     size_t pos = static_cast<size_t>(dt_off) + 24;
@@ -763,7 +764,10 @@ DecodeResult decode_mf4(const uint8_t* data, size_t size) {
             uint32_t n = ru32(data + pos);
             if (static_cast<size_t>(n) > size - pos - 4) return fail("MF4 record is truncated.");
             size_t nbytes = 4 + static_cast<size_t>(n);
-            vlsd_bytes[group_index].insert(vlsd_bytes[group_index].end(), data + pos, data + pos + nbytes);
+            auto& blob = vlsd_bytes[group_index];
+            size_t at = blob.size();
+            blob.resize(at + nbytes);
+            std::memcpy(blob.data() + at, data + pos, nbytes);
             pos += nbytes;
             continue;
         }

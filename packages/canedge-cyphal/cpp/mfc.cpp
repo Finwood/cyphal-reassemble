@@ -14,6 +14,13 @@ uint32_t be32(const uint8_t* p) {
     return (uint32_t(p[0]) << 24) | (uint32_t(p[1]) << 16) | (uint32_t(p[2]) << 8) | p[3];
 }
 
+void append_out(std::vector<uint8_t>& out, const uint8_t* buf, size_t got) {
+    if (got == 0) return;
+    size_t at = out.size();
+    out.resize(at + got);
+    std::memcpy(out.data() + at, buf, got);
+}
+
 std::string inflate(const uint8_t* in, size_t n, uint32_t lookahead, uint32_t window,
                     std::vector<uint8_t>& out) {
     if (window < 2 || (window & (window - 1)) != 0 || lookahead == 0 || lookahead > 15) {
@@ -21,9 +28,14 @@ std::string inflate(const uint8_t* in, size_t n, uint32_t lookahead, uint32_t wi
     }
     uint8_t window_sz2 = 0;
     while ((uint32_t(1) << window_sz2) < window) ++window_sz2;
-    heatshrink_decoder* dec = heatshrink_decoder_alloc(256, window_sz2, static_cast<uint8_t>(lookahead));
+    // Large sink buffer: heatshrink only accepts up to input_buffer_size per sink.
+    constexpr uint16_t kInputBuf = 65535;
+    heatshrink_decoder* dec = heatshrink_decoder_alloc(kInputBuf, window_sz2, static_cast<uint8_t>(lookahead));
     if (dec == nullptr) return "heatshrink alloc failed";
+    // CANedge MFCs on this corpus inflate ~1.5–2×; reserve to cut realloc copies.
+    out.reserve(out.size() + n * 2);
     size_t sunk = 0;
+    uint8_t buf[1 << 16];
     while (sunk < n) {
         size_t took = 0;
         if (heatshrink_decoder_sink(dec, const_cast<uint8_t*>(in + sunk), n - sunk, &took) < 0) {
@@ -32,10 +44,9 @@ std::string inflate(const uint8_t* in, size_t n, uint32_t lookahead, uint32_t wi
         }
         sunk += took;
         for (;;) {
-            uint8_t buf[1024];
             size_t got = 0;
             auto poll = heatshrink_decoder_poll(dec, buf, sizeof buf, &got);
-            out.insert(out.end(), buf, buf + got);
+            append_out(out, buf, got);
             if (poll == HSDR_POLL_EMPTY) break;
             if (poll != HSDR_POLL_MORE) {
                 heatshrink_decoder_free(dec);
@@ -45,10 +56,9 @@ std::string inflate(const uint8_t* in, size_t n, uint32_t lookahead, uint32_t wi
     }
     for (;;) {
         auto fin = heatshrink_decoder_finish(dec);
-        uint8_t buf[1024];
         size_t got = 0;
         auto poll = heatshrink_decoder_poll(dec, buf, sizeof buf, &got);
-        out.insert(out.end(), buf, buf + got);
+        append_out(out, buf, got);
         if (fin == HSDR_FINISH_DONE && poll == HSDR_POLL_EMPTY) break;
         if (fin < 0 || poll < 0) {
             heatshrink_decoder_free(dec);
