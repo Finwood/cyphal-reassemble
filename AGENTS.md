@@ -24,6 +24,7 @@ make -C packages/cyphal-reassemble              # configure + build (Release)
 make -C packages/cyphal-reassemble test         # ctest (unit + golden)
 make -C packages/cyphal-reassemble test-unit
 make -C packages/cyphal-reassemble test-golden
+make -C packages/canedge-cyphal test
 uv run --package cyphal-reassemble pytest
 uv run --package canedge-cyphal pytest
 uv run ruff check .
@@ -82,4 +83,5 @@ different tree layouts).
 - After cyphal-reassemble C++ or Python changes, run
   `make -C packages/cyphal-reassemble test` and
   `uv run --package cyphal-reassemble pytest`; after canedge-cyphal changes,
-  run `uv run --package canedge-cyphal pytest`. Say what you could not run.
+  run `uv run --package canedge-cyphal pytest` (`make -C packages/canedge-cyphal`
+  first when those tests read an MF4). Say what you could not run.

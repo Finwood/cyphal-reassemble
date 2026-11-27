@@ -3,6 +3,12 @@
 Convert CANedge MF4 logs into a frame hive, then reassemble that hive into Cyphal transfer parquet. Extended data frames are passed to `cyphal-reassemble` with no Cyphal/DroneCAN pre-filter.
 
 ```bash
+make -C packages/canedge-cyphal
+```
+
+`convert` runs `build/canedge-mf4`; set `CANEDGE_MF4_BIN` to override that path.
+
+```bash
 uv run canedge-cyphal convert --mf4-dir /path/to/mf4 --frames-dir /path/to/frames
 uv run canedge-cyphal convert --mf4-dir /path/to/mf4 --frames-dir /path/to/frames --workers 4
 uv run canedge-cyphal reassemble --frames-dir /path/to/frames --transfers-dir /path/to/transfers
