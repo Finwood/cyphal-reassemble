@@ -1,7 +1,11 @@
+from __future__ import annotations
+
 import os
 from pathlib import Path
 
 import pyarrow as pa
+import pytest
+from canedge_cyphal import mf4 as mf4_mod
 from canedge_cyphal.mf4 import (
     FRAME_SCHEMA,
     CANedgeFile,
@@ -150,3 +154,30 @@ def test_failed_newest_upload_keeps_older_parquet(tmp_path: Path):
 
 def test_convert_tree_with_workers_returns_zero_on_empty_tree(tmp_path: Path):
     assert convert_tree(tmp_path / "mf4", tmp_path / "frames", workers=1) == 0
+
+
+def test_convert_tree_uses_a_thread_pool(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    calls: list[int | None] = []
+
+    class Recorder:
+        def __init__(self, max_workers: int | None = None) -> None:
+            calls.append(max_workers)
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args: object) -> bool:
+            return False
+
+        def submit(self, fn: object, *args: object, **kwargs: object) -> object:
+            class Future:
+                def result(self) -> int:
+                    return 0
+
+            return Future()
+
+    monkeypatch.setattr(mf4_mod, "ThreadPoolExecutor", Recorder)
+    assert convert_tree(tmp_path / "mf4", tmp_path / "frames", workers=3) == 0
+    assert calls == [3]

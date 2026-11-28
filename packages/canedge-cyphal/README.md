@@ -14,7 +14,7 @@ uv run canedge-cyphal convert --mf4-dir /path/to/mf4 --frames-dir /path/to/frame
 uv run canedge-cyphal reassemble --frames-dir /path/to/frames --transfers-dir /path/to/transfers
 ```
 
-`--workers` sets `ProcessPoolExecutor` `max_workers`; omit it to use the Python default.
+`--workers` sets the conversion thread pool's `max_workers`. Omit it to use the Python default, `min(32, cpu_count + 4)`.
 
 `reassemble --channel-map map.json` reads a JSON object whose values are channel lists. The key is the bus id and the list index is `rti`.
 

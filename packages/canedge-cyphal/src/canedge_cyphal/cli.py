@@ -33,7 +33,7 @@ def _parser() -> argparse.ArgumentParser:
         "--workers",
         type=int,
         default=None,
-        help="max parallel conversion processes (default: Python's ProcessPoolExecutor default)",
+        help=("max parallel conversion threads (default: min(32, cpu_count + 4))"),
     )
 
     reassemble = sub.add_parser("reassemble")
