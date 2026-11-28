@@ -1,0 +1,14 @@
+name: Scheduled tests
+
+on:
+  schedule:
+    # Mondays 05:17 UTC (06:17 Europe/Berlin). Resolves the newest packages
+    # instead of the versions pinned in uv.lock.
+    - cron: "17 5 * * 1"
+  workflow_dispatch:
+
+jobs:
+  test:
+    uses: ./.github/workflows/test.yml
+    with:
+      upgrade: true
