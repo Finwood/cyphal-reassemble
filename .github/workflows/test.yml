@@ -49,30 +49,9 @@ jobs:
       # binary compiled on ubuntu-latest: the host glibc and the x86_64_v3 ISA
       # are newer than the manylinux baseline.
 
-  resolve:
-    name: Resolve dependencies
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: astral-sh/setup-uv@v5
-        with:
-          enable-cache: true
-
-      - name: Upgrade lockfile
-        if: inputs.upgrade
-        run: uv lock --upgrade
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: lockfile
-          retention-days: 1
-          if-no-files-found: error
-          path: uv.lock
-
   python:
     name: Python ${{ matrix.python-version }}
-    needs: [native, resolve]
+    needs: native
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -91,15 +70,6 @@ jobs:
           name: native-binaries
           path: packages
 
-      - name: Restore lockfile
-        uses: actions/download-artifact@v4
-        with:
-          name: lockfile
-          path: ${{ runner.temp }}/lockfile
-
-      - name: Install lockfile
-        run: mv "${{ runner.temp }}/lockfile/uv.lock" uv.lock
-
       - name: Require native binaries
         run: |
           set -euo pipefail
@@ -116,8 +86,9 @@ jobs:
           python-version: ${{ matrix.python-version }}
           enable-cache: true
 
+      # --upgrade rewrites uv.lock in the job workspace. That file is not uploaded.
       - name: Sync
-        run: uv sync --all-packages --frozen
+        run: uv sync --all-packages ${{ inputs.upgrade && '--upgrade' || '--frozen' }}
 
       - name: Test cyphal-reassemble
         run: uv run --package cyphal-reassemble pytest packages/cyphal-reassemble/tests/py -v
@@ -127,18 +98,9 @@ jobs:
 
   lint:
     name: Lint
-    needs: resolve
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      - uses: actions/download-artifact@v4
-        with:
-          name: lockfile
-          path: ${{ runner.temp }}/lockfile
-
-      - name: Install lockfile
-        run: mv "${{ runner.temp }}/lockfile/uv.lock" uv.lock
 
       - uses: astral-sh/setup-uv@v5
         with:
