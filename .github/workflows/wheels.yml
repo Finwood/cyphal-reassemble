@@ -9,6 +9,7 @@ on:
 
 permissions:
   contents: read
+  actions: write
 
 jobs:
   build-wheels:
@@ -18,6 +19,16 @@ jobs:
         with:
           submodules: recursive
           lfs: true
+
+      # The image's compiler and libarrow are known only after the container
+      # starts, so the key cannot include them. Each run saves its own entry.
+      # prepare discards a restored tree when that toolchain changed.
+      - uses: actions/cache@v4
+        with:
+          path: packages/cyphal-reassemble/build
+          key: cmake-manylinux_2_28-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            cmake-manylinux_2_28-
 
       # Hatchling emits py3-none-any, then auditwheel retags to manylinux. cibuildwheel's
       # default PEP 517 build rejects none-any wheels before repair, so we run the same
@@ -35,6 +46,9 @@ jobs:
               export PYTHON=python
               bash scripts/install_arrow_cpp.sh
               python -m pip install --upgrade pip auditwheel build wheel hatchling patchelf pytest "pyarrow>=15"
+              python /project/.github/scripts/cmake_build_cache.py prepare \
+                /project/packages/cyphal-reassemble/build \
+                /project/packages/cyphal-reassemble
               mkdir -p wheelhouse
               bash scripts/build_wheel.sh wheelhouse
               mapfile -t wheels < <(compgen -G "wheelhouse/cyphal_reassemble-*-manylinux_*.whl")
@@ -45,6 +59,9 @@ jobs:
               fi
               python -m pip install "${wheels[0]}"
               PYTHON=python bash scripts/test_installed_wheel.sh /project/packages/cyphal-reassemble
+              python /project/.github/scripts/cmake_build_cache.py record \
+                /project/packages/cyphal-reassemble/build \
+                /project/packages/cyphal-reassemble
             '
 
       - uses: actions/upload-artifact@v4

@@ -24,6 +24,34 @@ jobs:
         with:
           build-tools: "true"
 
+      - name: Toolchain
+        id: toolchain
+        run: |
+          digest="$(
+            {
+              gcc --version | head -n 1
+              g++ --version | head -n 1
+              cmake --version | head -n 1
+              dpkg-query -W -f '${Version}' libarrow-dev
+            } | sha256sum | cut -c1-16
+          )"
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            packages/cyphal-reassemble/build
+            packages/canedge-cyphal/build
+          key: cmake-${{ runner.os }}-${{ steps.toolchain.outputs.digest }}-${{ hashFiles('packages/cyphal-reassemble/CMakeLists.txt', 'packages/cyphal-reassemble/Makefile', 'packages/cyphal-reassemble/src/**', 'packages/cyphal-reassemble/tests/cpp/**', 'packages/cyphal-reassemble/third_party/libcanard/**', 'packages/canedge-cyphal/CMakeLists.txt', 'packages/canedge-cyphal/Makefile', 'packages/canedge-cyphal/cpp/**', 'packages/canedge-cyphal/tests/cpp/**') }}
+          restore-keys: |
+            cmake-${{ runner.os }}-${{ steps.toolchain.outputs.digest }}-
+
+      - name: Prepare cached build directories
+        run: |
+          python3 .github/scripts/cmake_build_cache.py prepare \
+            packages/cyphal-reassemble/build packages/cyphal-reassemble \
+            packages/canedge-cyphal/build packages/canedge-cyphal
+
       - name: Build
         working-directory: packages/cyphal-reassemble
         run: make
@@ -34,6 +62,12 @@ jobs:
 
       - name: Build and test canedge-mf4
         run: make -C packages/canedge-cyphal test
+
+      - name: Record build cache manifest
+        run: |
+          python3 .github/scripts/cmake_build_cache.py record \
+            packages/cyphal-reassemble/build packages/cyphal-reassemble \
+            packages/canedge-cyphal/build packages/canedge-cyphal
 
       - uses: actions/upload-artifact@v4
         with:
