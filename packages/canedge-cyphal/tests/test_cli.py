@@ -44,34 +44,24 @@ def test_convert_workers_default_is_none():
     assert args.workers is None
 
 
-def test_convert_pool_default_is_process():
+def test_convert_rejects_pool_flag():
+    import pytest
     from canedge_cyphal.cli import _parser
 
-    args = _parser().parse_args(["convert", "--mf4-dir", "m", "--frames-dir", "f"])
-    assert args.pool == "process"
+    with pytest.raises(SystemExit) as exc:
+        _parser().parse_args(
+            ["convert", "--mf4-dir", "m", "--frames-dir", "f", "--pool", "thread"]
+        )
+    assert exc.value.code == 2
 
 
-def test_convert_pool_accepts_thread():
-    from canedge_cyphal.cli import _parser
-
-    args = _parser().parse_args(
-        ["convert", "--mf4-dir", "m", "--frames-dir", "f", "--pool", "thread"]
-    )
-    assert args.pool == "thread"
-
-
-def test_convert_workers_and_pool_forwarded_to_convert_tree(
-    tmp_path: Path, monkeypatch
-):
-    seen: list[tuple[int | None, str | None]] = []
+def test_convert_workers_forwarded_to_convert_tree(tmp_path: Path, monkeypatch):
+    seen: list[int | None] = []
 
     def fake_convert_tree(
-        mf4_dir: Path,
-        frames_dir: Path,
-        workers: int | None = None,
-        pool: str | None = None,
+        mf4_dir: Path, frames_dir: Path, workers: int | None = None
     ) -> int:
-        seen.append((workers, pool))
+        seen.append(workers)
         return 0
 
     monkeypatch.setattr("canedge_cyphal.cli.convert_tree", fake_convert_tree)
@@ -79,7 +69,7 @@ def test_convert_workers_and_pool_forwarded_to_convert_tree(
     frames = str(tmp_path / "frames")
 
     assert main(["convert", "--mf4-dir", mf4, "--frames-dir", frames]) == 0
-    assert seen[-1] == (None, "process")
+    assert seen[-1] is None
 
     assert (
         main(
@@ -95,25 +85,7 @@ def test_convert_workers_and_pool_forwarded_to_convert_tree(
         )
         == 0
     )
-    assert seen[-1] == (1, "process")
-
-    assert (
-        main(
-            [
-                "convert",
-                "--mf4-dir",
-                mf4,
-                "--frames-dir",
-                frames,
-                "--workers",
-                "2",
-                "--pool",
-                "thread",
-            ]
-        )
-        == 0
-    )
-    assert seen[-1] == (2, "thread")
+    assert seen[-1] == 1
 
 
 def test_convert_workers_zero_exits_2(tmp_path: Path, capsys):

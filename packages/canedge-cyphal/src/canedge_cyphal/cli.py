@@ -33,17 +33,7 @@ def _parser() -> argparse.ArgumentParser:
         "--workers",
         type=int,
         default=None,
-        help=(
-            "max workers in the conversion pool "
-            "(default: process uses the CPU count; "
-            "thread uses min(32, cpu_count + 4))"
-        ),
-    )
-    convert.add_argument(
-        "--pool",
-        choices=("process", "thread"),
-        default="process",
-        help="conversion pool (default: process)",
+        help=("max parallel conversion threads (default: min(32, cpu_count + 4))"),
     )
 
     reassemble = sub.add_parser("reassemble")
@@ -166,11 +156,6 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.workers is not None and args.workers <= 0:
             print("--workers must be a positive integer", file=sys.stderr)
             return 2
-        failures = convert_tree(
-            args.mf4_dir,
-            args.frames_dir,
-            workers=args.workers,
-            pool=args.pool,
-        )
+        failures = convert_tree(args.mf4_dir, args.frames_dir, workers=args.workers)
         return 1 if failures else 0
     return _cmd_reassemble(args)

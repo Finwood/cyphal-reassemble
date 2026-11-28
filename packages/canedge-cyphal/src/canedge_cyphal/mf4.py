@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 import subprocess
 from collections.abc import Callable, Iterable
-from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, BinaryIO, NoReturn
@@ -313,20 +313,11 @@ def convert_one(
     return 0
 
 
-def _executor_for(pool: str) -> type[ProcessPoolExecutor | ThreadPoolExecutor]:
-    if pool == "process":
-        return ProcessPoolExecutor
-    if pool == "thread":
-        return ThreadPoolExecutor
-    raise ValueError("pool must be 'process' or 'thread'")
-
-
 def convert_tree(
     mf4_dir: Path,
     frames_dir: Path,
     *,
     workers: int | None = None,
-    pool: str = "process",
 ) -> int:
     sources = list(mf4_dir.glob("*/*/*-*.MF[4C]"))
     jobs: list[tuple[CANedgeFile, Path, Path]] = []
@@ -348,7 +339,7 @@ def convert_tree(
         # write an .error marker beside every source and skip them next time.
         resolve_canedge_mf4()
     failures = 0
-    with _executor_for(pool)(max_workers=workers) as executor:
+    with ThreadPoolExecutor(max_workers=workers) as executor:
         futures = [
             executor.submit(convert_one, chosen, dest, mf4_dir)
             for chosen, dest, mf4_dir in jobs

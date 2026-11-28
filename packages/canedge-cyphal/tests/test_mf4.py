@@ -156,53 +156,28 @@ def test_convert_tree_with_workers_returns_zero_on_empty_tree(tmp_path: Path):
     assert convert_tree(tmp_path / "mf4", tmp_path / "frames", workers=1) == 0
 
 
-def _record_pools(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, int | None]]:
-    calls: list[tuple[str, int | None]] = []
-
-    def make(label: str):
-        class Recorder:
-            def __init__(self, max_workers: int | None = None) -> None:
-                calls.append((label, max_workers))
-
-            def __enter__(self):
-                return self
-
-            def __exit__(self, *args: object) -> bool:
-                return False
-
-            def submit(self, fn: object, *args: object, **kwargs: object) -> object:
-                class Future:
-                    def result(self) -> int:
-                        return 0
-
-                return Future()
-
-        return Recorder
-
-    monkeypatch.setattr(mf4_mod, "ProcessPoolExecutor", make("process"))
-    monkeypatch.setattr(mf4_mod, "ThreadPoolExecutor", make("thread"), raising=False)
-    return calls
-
-
-def test_convert_tree_uses_process_pool_by_default(
+def test_convert_tree_uses_a_thread_pool(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
-    calls = _record_pools(monkeypatch)
-    assert convert_tree(tmp_path / "mf4", tmp_path / "frames") == 0
-    assert calls == [("process", None)]
+    calls: list[int | None] = []
 
+    class Recorder:
+        def __init__(self, max_workers: int | None = None) -> None:
+            calls.append(max_workers)
 
-def test_convert_tree_uses_thread_pool_when_asked(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-):
-    calls = _record_pools(monkeypatch)
-    assert (
-        convert_tree(tmp_path / "mf4", tmp_path / "frames", workers=3, pool="thread")
-        == 0
-    )
-    assert calls == [("thread", 3)]
+        def __enter__(self):
+            return self
 
+        def __exit__(self, *args: object) -> bool:
+            return False
 
-def test_convert_tree_rejects_unknown_pool(tmp_path: Path):
-    with pytest.raises(ValueError, match="pool"):
-        convert_tree(tmp_path / "mf4", tmp_path / "frames", pool="fork")
+        def submit(self, fn: object, *args: object, **kwargs: object) -> object:
+            class Future:
+                def result(self) -> int:
+                    return 0
+
+            return Future()
+
+    monkeypatch.setattr(mf4_mod, "ThreadPoolExecutor", Recorder)
+    assert convert_tree(tmp_path / "mf4", tmp_path / "frames", workers=3) == 0
+    assert calls == [3]
