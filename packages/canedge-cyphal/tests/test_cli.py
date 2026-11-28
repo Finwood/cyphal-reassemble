@@ -44,13 +44,34 @@ def test_convert_workers_default_is_none():
     assert args.workers is None
 
 
-def test_convert_workers_forwarded_to_convert_tree(tmp_path: Path, monkeypatch):
-    seen: list[int | None] = []
+def test_convert_pool_default_is_process():
+    from canedge_cyphal.cli import _parser
+
+    args = _parser().parse_args(["convert", "--mf4-dir", "m", "--frames-dir", "f"])
+    assert args.pool == "process"
+
+
+def test_convert_pool_accepts_thread():
+    from canedge_cyphal.cli import _parser
+
+    args = _parser().parse_args(
+        ["convert", "--mf4-dir", "m", "--frames-dir", "f", "--pool", "thread"]
+    )
+    assert args.pool == "thread"
+
+
+def test_convert_workers_and_pool_forwarded_to_convert_tree(
+    tmp_path: Path, monkeypatch
+):
+    seen: list[tuple[int | None, str | None]] = []
 
     def fake_convert_tree(
-        mf4_dir: Path, frames_dir: Path, workers: int | None = None
+        mf4_dir: Path,
+        frames_dir: Path,
+        workers: int | None = None,
+        pool: str | None = None,
     ) -> int:
-        seen.append(workers)
+        seen.append((workers, pool))
         return 0
 
     monkeypatch.setattr("canedge_cyphal.cli.convert_tree", fake_convert_tree)
@@ -58,7 +79,7 @@ def test_convert_workers_forwarded_to_convert_tree(tmp_path: Path, monkeypatch):
     frames = str(tmp_path / "frames")
 
     assert main(["convert", "--mf4-dir", mf4, "--frames-dir", frames]) == 0
-    assert seen[-1] is None
+    assert seen[-1] == (None, "process")
 
     assert (
         main(
@@ -74,7 +95,25 @@ def test_convert_workers_forwarded_to_convert_tree(tmp_path: Path, monkeypatch):
         )
         == 0
     )
-    assert seen[-1] == 1
+    assert seen[-1] == (1, "process")
+
+    assert (
+        main(
+            [
+                "convert",
+                "--mf4-dir",
+                mf4,
+                "--frames-dir",
+                frames,
+                "--workers",
+                "2",
+                "--pool",
+                "thread",
+            ]
+        )
+        == 0
+    )
+    assert seen[-1] == (2, "thread")
 
 
 def test_convert_workers_zero_exits_2(tmp_path: Path, capsys):

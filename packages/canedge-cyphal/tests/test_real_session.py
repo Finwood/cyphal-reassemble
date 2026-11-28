@@ -35,11 +35,14 @@ def _transfers(path: Path):
     return table.sort_by([(name, "ascending") for name in _TRANSFER_COLUMNS])
 
 
-def test_real_session_round_trips_through_convert_and_reassemble(tmp_path: Path):
+@pytest.mark.parametrize("pool", ["process", "thread"])
+def test_real_session_round_trips_through_convert_and_reassemble(
+    tmp_path: Path, pool: str
+):
     mf4_dir = tmp_path / "mf4"
     shutil.copytree(FIXTURE / "mf4", mf4_dir)
     frames_out = tmp_path / "frames"
-    assert convert_tree(mf4_dir, frames_out) == 0
+    assert convert_tree(mf4_dir, frames_out, pool=pool) == 0
     produced_frames = _session_dir(frames_out) / f"{SPLIT}.parquet"
     expected_frames = _session_dir(FIXTURE / "frames") / f"{SPLIT}.parquet"
     assert pq.read_table(produced_frames).equals(
