@@ -5,46 +5,12 @@ on:
     branches: [main, master]
   pull_request:
 
+permissions:
+  contents: read
+  actions: write
+
 jobs:
-  build-and-test:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: recursive
-          lfs: true
-
-      - name: Install Arrow C++ and build tools
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y -V ca-certificates lsb-release wget cmake g++
-          wget https://apache.jfrog.io/artifactory/arrow/$(lsb_release --id --short | tr 'A-Z' 'a-z')/apache-arrow-apt-source-latest-$(lsb_release --codename --short).deb
-          sudo apt-get install -y -V ./apache-arrow-apt-source-latest-$(lsb_release --codename --short).deb
-          sudo apt-get update
-          sudo apt-get install -y -V libarrow-dev make
-
-      - name: Build
-        working-directory: packages/cyphal-reassemble
-        run: make
-
-      - name: Test
-        working-directory: packages/cyphal-reassemble
-        run: make test
-
-      - name: Build and test canedge-mf4
-        run: make -C packages/canedge-cyphal test
-
-      - uses: astral-sh/setup-uv@v5
-        with:
-          enable-cache: true
-
-      - name: Python tests and checks
-        run: |
-          uv sync --all-packages
-          uv run --package cyphal-reassemble pytest packages/cyphal-reassemble/tests/py -v
-          uv run --package canedge-cyphal pytest packages/canedge-cyphal/tests -v
-          uv run prek run --all-files
-
-      # The manylinux wheel is built in wheels.yml. auditwheel cannot repair a
-      # binary compiled on ubuntu-latest: the host glibc and the x86_64_v3 ISA
-      # are newer than the manylinux baseline.
+  test:
+    uses: ./.github/workflows/test.yml
+    with:
+      upgrade: false

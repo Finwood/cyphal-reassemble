@@ -67,8 +67,8 @@ def _parser() -> argparse.ArgumentParser:
         type=int,
         default=None,
         help=(
-            "max parallel conversion processes "
-            f"(env: {_WORKERS_ENV}; default: Python's ProcessPoolExecutor default)"
+            "max parallel conversion threads "
+            f"(env: {_WORKERS_ENV}; default: min(32, cpu_count + 4))"
         ),
     )
     parser.add_argument("--batch-size", type=int, default=65536)

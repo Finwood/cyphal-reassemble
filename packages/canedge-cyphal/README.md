@@ -19,7 +19,7 @@ uv run canedge-cyphal --skip-convert --frames-dir /path/to/frames --transfers-di
 
 The command converts the MF4 tree and then reassembles the frame hive. `--skip-convert` and `--skip-reassemble` each turn one stage off. A conversion failure still continues into reassembly. The process exits 1 when either stage reports a failure.
 
-`--workers` sets `ProcessPoolExecutor` `max_workers`; omit it to use the Python default.
+`--workers` sets the conversion thread pool's `max_workers`. Omit it to use the Python default, `min(32, cpu_count + 4)`.
 
 Directories and the worker count also come from the environment. A flag overrides the matching variable.
 

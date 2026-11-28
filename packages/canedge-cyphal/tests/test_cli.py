@@ -53,6 +53,16 @@ def test_workers_default_is_none():
     assert args.skip_reassemble is False
 
 
+def test_rejects_pool_flag():
+    from canedge_cyphal.cli import _parser
+
+    with pytest.raises(SystemExit) as exc:
+        _parser().parse_args(
+            ["--mf4-dir", "m", "--frames-dir", "f", "--pool", "thread"]
+        )
+    assert exc.value.code == 2
+
+
 def test_workers_forwarded_to_convert_tree(tmp_path: Path, monkeypatch):
     seen: list[int | None] = []
 

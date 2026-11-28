@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 import subprocess
 from collections.abc import Callable, Iterable
-from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, BinaryIO, NoReturn
@@ -339,7 +339,7 @@ def convert_tree(
         # write an .error marker beside every source and skip them next time.
         resolve_canedge_mf4()
     failures = 0
-    with ProcessPoolExecutor(max_workers=workers) as executor:
+    with ThreadPoolExecutor(max_workers=workers) as executor:
         futures = [
             executor.submit(convert_one, chosen, dest, mf4_dir)
             for chosen, dest, mf4_dir in jobs
