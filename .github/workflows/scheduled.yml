@@ -1,0 +1,18 @@
+name: Scheduled tests
+
+on:
+  schedule:
+    # Mondays 05:17 UTC (06:17 Europe/Berlin). Test jobs run uv sync --upgrade
+    # and do not keep the rewritten lockfile. Lint stays on uv.lock.
+    - cron: "17 5 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  test:
+    uses: ./.github/workflows/test.yml
+    with:
+      upgrade: true

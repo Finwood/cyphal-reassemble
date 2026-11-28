@@ -1,0 +1,121 @@
+name: Test
+
+on:
+  workflow_call:
+    inputs:
+      upgrade:
+        description: Resolve the newest package versions, ignoring lockfile pins
+        type: boolean
+        default: false
+
+# Linux only. The C++ binaries are built once and reused. Python jobs install
+# libarrow so those binaries can run; they do not configure or compile.
+jobs:
+  native:
+    name: C++ build and test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          lfs: true
+
+      - uses: ./.github/actions/arrow
+        with:
+          build-tools: "true"
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            packages/cyphal-reassemble/build
+            packages/canedge-cyphal/build
+          key: ${{ runner.os }}-cmake-${{ github.sha }}
+          restore-keys: ${{ runner.os }}-cmake-
+
+      - name: Build
+        working-directory: packages/cyphal-reassemble
+        run: make
+
+      - name: Test
+        working-directory: packages/cyphal-reassemble
+        run: make test
+
+      - name: Build and test canedge-mf4
+        run: make -C packages/canedge-cyphal test
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: native-binaries
+          retention-days: 1
+          if-no-files-found: error
+          path: |
+            packages/cyphal-reassemble/build/cyphal-reassemble
+            packages/canedge-cyphal/build/canedge-mf4
+            packages/canedge-cyphal/build/mfc-wrap
+
+      # The manylinux wheel is built in wheels.yml. auditwheel cannot repair a
+      # binary compiled on ubuntu-latest: the host glibc and the x86_64_v3 ISA
+      # are newer than the manylinux baseline.
+
+  python:
+    name: Python ${{ matrix.python-version }}
+    needs: native
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # Keep in step with requires-python (>=3.11,<3.16) in both packages.
+        python-version: ["3.11", "3.12", "3.13", "3.14", "3.15"]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - uses: ./.github/actions/arrow
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: native-binaries
+          path: packages
+
+      - name: Require native binaries
+        run: |
+          set -euo pipefail
+          chmod +x \
+            packages/cyphal-reassemble/build/cyphal-reassemble \
+            packages/canedge-cyphal/build/canedge-mf4 \
+            packages/canedge-cyphal/build/mfc-wrap
+          test -x packages/cyphal-reassemble/build/cyphal-reassemble
+          test -x packages/canedge-cyphal/build/canedge-mf4
+          test -x packages/canedge-cyphal/build/mfc-wrap
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          enable-cache: true
+
+      # --upgrade rewrites uv.lock in the job workspace. That file is not uploaded.
+      - name: Sync
+        run: uv sync --all-packages ${{ inputs.upgrade && '--upgrade' || '--frozen' }}
+
+      - name: Test cyphal-reassemble
+        run: uv run --package cyphal-reassemble pytest packages/cyphal-reassemble/tests/py -v
+
+      - name: Test canedge-cyphal
+        run: uv run --package canedge-cyphal pytest packages/canedge-cyphal/tests -v
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Sync
+        run: uv sync --all-packages --frozen
+
+      - name: prek
+        run: uv run prek run --all-files
