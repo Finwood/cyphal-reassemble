@@ -49,20 +49,6 @@ jobs:
       # binary compiled on ubuntu-latest: the host glibc and the x86_64_v3 ISA
       # are newer than the manylinux baseline.
 
-  python-versions:
-    name: Supported Python versions
-    runs-on: ubuntu-latest
-    outputs:
-      versions: ${{ steps.list.outputs.versions }}
-    steps:
-      - uses: actions/checkout@v4
-
-      - id: list
-        run: |
-          versions="$(python3 .github/scripts/supported_pythons.py)"
-          echo "Supported Python versions: ${versions}"
-          echo "versions=${versions}" >> "$GITHUB_OUTPUT"
-
   resolve:
     name: Resolve dependencies
     runs-on: ubuntu-latest
@@ -86,12 +72,13 @@ jobs:
 
   python:
     name: Python ${{ matrix.python-version }}
-    needs: [native, python-versions, resolve]
+    needs: [native, resolve]
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        python-version: ${{ fromJSON(needs.python-versions.outputs.versions) }}
+        # Keep in step with requires-python (>=3.11,<3.16) in both packages.
+        python-version: ["3.11", "3.12", "3.13", "3.14", "3.15"]
     steps:
       - uses: actions/checkout@v4
         with:
